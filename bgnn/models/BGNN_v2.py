@@ -1,4 +1,3 @@
-
 import itertools
 import time
 import numpy as np
@@ -58,6 +57,8 @@ class BGNN(BaseModel):
 
     def fit_gbdt(self, pool, trees_per_epoch, epoch):
         gbdt_model = self.init_gbdt_model(trees_per_epoch, epoch)
+        print("gbdt model:", gbdt_model)
+        print("pool:", pool.get_label().shape)
         gbdt_model.fit(pool, verbose=False)
         return gbdt_model
 
@@ -78,7 +79,7 @@ class BGNN(BaseModel):
 
     def train_gbdt(self, gbdt_X_train, gbdt_y_train, cat_features, epoch,
                    gbdt_trees_per_epoch, gbdt_alpha):
-
+        print(gbdt_y_train.shape)
         pool = Pool(gbdt_X_train, gbdt_y_train, cat_features=cat_features)
         epoch_gbdt_model = self.fit_gbdt(pool, gbdt_trees_per_epoch, epoch)
         if epoch == 0 and self.task=='classification':
@@ -89,7 +90,7 @@ class BGNN(BaseModel):
     def update_node_features(self, node_features, X, encoded_X):
         if self.task == 'regression':
             predictions = np.expand_dims(self.gbdt_model.calc_leaf_indexes(X), axis=1)
-            
+        # classification task    
         else:
             # leaf index
             leaf_idx = self.base_gbdt.calc_leaf_indexes(X)
@@ -99,10 +100,8 @@ class BGNN(BaseModel):
             min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1,1))
             if self.gbdt_model is not None:
                 leaf_idx = self.gbdt_model.calc_leaf_indexes(X)
-                # print(leaf_idx[7516])
                 leaf_idx = leaf_idx.reshape(len(X), -1, self.iter_per_epoch)
                 leaf_idx = np.sum(leaf_idx, axis=1)
-                # print(leaf_idx[7516])
                 leaf_idx = min_max_scaler.fit_transform(leaf_idx)
                 # print(leaf_idx_new.shape)
 
@@ -217,6 +216,8 @@ class BGNN(BaseModel):
             start2epoch = time.time()
 
             # gbdt part
+            # print("gbdt_x_train: ", gbdt_X_train.shape)
+            # print("gbdt_y_train:", gbdt_y_train.shape)
             self.train_gbdt(gbdt_X_train, gbdt_y_train, cat_features, epoch,
                             self.iter_per_epoch, gbdt_alpha)
 
@@ -224,12 +225,11 @@ class BGNN(BaseModel):
             self.update_node_features(node_features, X, encoded_X)
             node_features_before = node_features.clone()
             print("node_features:", node_features.shape)
-            print("node_features_before:", node_features_before.shape)
+            # print("node_features_before:", node_features_before.shape)
             model_in=(graph, node_features)
             loss = self.train_and_evaluate(model_in, y, train_mask, val_mask, test_mask,
                                            optimizer, metrics, self.iter_per_epoch)
             gbdt_y_train = self.update_gbdt_targets(node_features, node_features_before, train_mask)
-            # print("gbdt_y_train:", gbdt_y_train.shape)
             self.residual_before = gbdt_y_train.copy()
 
             self.log_epoch(pbar, metrics, epoch, loss, time.time() - start2epoch, logging_epochs,

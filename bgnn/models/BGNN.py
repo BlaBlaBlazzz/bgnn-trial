@@ -111,6 +111,7 @@ class BGNN(BaseModel):
 
     def init_node_features(self, X):
         node_features = torch.empty(X.shape[0], self.in_dim, requires_grad=True, device=self.device)
+        # print("node_features:", node_features.shape)
         if not self.only_gbdt:
             node_features.data[:, :-self.out_dim] = torch.from_numpy(X.to_numpy(copy=True))
         return node_features
@@ -160,6 +161,7 @@ class BGNN(BaseModel):
         self.init_gnn_model()
 
         gbdt_X_train = X.iloc[train_mask]
+        # print(gbdt_X_train.shape)
         gbdt_y_train = y.iloc[train_mask]
         gbdt_alpha = 1
         self.gbdt_model = None
@@ -174,6 +176,7 @@ class BGNN(BaseModel):
                 encoded_X = self.replace_na(encoded_X, train_mask)
 
         node_features = self.init_node_features(encoded_X)
+        # print(node_features)
         optimizer = self.init_optimizer(node_features, optimize_node_features=True, learning_rate=self.learning_rate)
 
         y, = self.pandas_to_torch(y)
@@ -194,6 +197,7 @@ class BGNN(BaseModel):
                             self.iter_per_epoch, gbdt_alpha)
 
             self.update_node_features(node_features, X, encoded_X)
+            # print("node_features:", node_features.shape)
             node_features_before = node_features.clone()
             model_in=(graph, node_features)
             loss = self.train_and_evaluate(model_in, y, train_mask, val_mask, test_mask,
