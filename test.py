@@ -1,24 +1,22 @@
 from catboost import CatBoostRegressor, Pool
 import numpy as np
-# Initialize data
+import time
 
-train_data = [[1, 4, 5, 6],
-              [4, 5, 6, 7],
-              [30, 40, 50, 60]]
+# 創建一個示例數據集
+X = np.random.rand(50000, 5)
+y = np.random.rand(50000)
 
-eval_data = [[2, 4, 6, 8],
-             [1, 4, 50, 60]]
+# 初始化 CatBoostRegressor 模型
+model = CatBoostRegressor(iterations=100, depth=5, learning_rate=0.1)
+model.fit(X, y)
 
-train_labels = np.array([[10, 10], [20, 20], [30, 30]])
-print(train_labels.shape)
-pool = Pool(train_data, train_labels, cat_features=[])
-# Initialize CatBoostRegressor
-model = CatBoostRegressor(iterations=2,
-                          learning_rate=1,
-                          depth=2,
-                          loss_function = "MultiRMSE")
-# Fit model
-model.fit(pool, verbose=False)
-# Get predictions
-preds = model.predict(eval_data)
-print(preds)
+# 創建 Pool 對象
+pool = Pool(X)
+
+# 使用 predict 方法獲取每個樹的葉子節點索引
+leaf_indexes = model.predict(pool, prediction_type='RawFormulaVal')
+start = time.time()
+leaf_indexes = model.calc_leaf_indexes(pool)
+print(time.time() - start)
+# leaf_indexes 是一個 NumPy 數組，形狀為 (num_samples, num_trees)
+print(leaf_indexes.shape)

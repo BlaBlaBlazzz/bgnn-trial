@@ -1,6 +1,7 @@
 hp:
   iter_per_epoch:
   - 10
+  - 15
   - 20
   lr:
   - 0.01
@@ -12,9 +13,8 @@ hp:
   - gcn
   - agnn
   - appnp
-  only_gbdt:
-  - false
-  - true
+  only_gbdt: 
+  - False
   dropout:
   - 0.
   - 0.5

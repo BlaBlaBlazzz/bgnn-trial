@@ -220,7 +220,7 @@ class RunModel:
             save_folder: str = None,
             task: str = 'regression',
             repeat_exp: int = 1,
-            max_seeds: int = 4,
+            max_seeds: int = 3,
             dataset_dir: str = None,
             config_dir: str = None
             ):
