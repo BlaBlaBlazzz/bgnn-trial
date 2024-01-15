@@ -30,6 +30,7 @@ class BGNN(BaseModel):
         self.gbdt_lr = gbdt_lr
         self.gnn_dropout = 0.5
         self.residual_before = None
+        self.leaf_idx_before = None
 
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -85,25 +86,39 @@ class BGNN(BaseModel):
         if epoch == 0 and self.task=='classification':
             self.base_gbdt = epoch_gbdt_model
         else:
-            # self.gbdt_model = self.append_gbdt_model(epoch_gbdt_model, weights=[1, gbdt_alpha])
-            self.gbdt_model = epoch_gbdt_model
+            self.gbdt_model = self.append_gbdt_model(epoch_gbdt_model, weights=[1, gbdt_alpha])
+            self.cur_gbdt = epoch_gbdt_model
 
-    def update_node_features(self, node_features, X, encoded_X):
+    def update_node_features(self, node_features, X, encoded_X, all_mask):
         if self.task == 'regression':
             prediction = np.expand_dims(self.gbdt_model.calc_leaf_indexes(X), axis=1)
-        # classification task    
+        
         else:
             # MinMaxScaler
             min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1,1))
-            # leaf index
             leaf_idx = self.base_gbdt.calc_leaf_indexes(X)
             leaf_idx = min_max_scaler.fit_transform(leaf_idx)
-
+            if self.leaf_idx_before is None:
+                self.leaf_idx_before = leaf_idx
+            
             if self.gbdt_model is not None:
-                leaf_idx = self.gbdt_model.calc_leaf_indexes(X)
-                # leaf_idx_reshaped = leaf_idx.reshape(len(X), -1, self.iter_per_epoch).view()                
-                # leaf_idx = np.sum(leaf_idx_reshaped, axis=1)
+                '''
+                leaf_idx2 = self.gbdt_model.calc_leaf_indexes(X)
+                leaf_idx2 = leaf_idx2.reshape(len(X), -1, self.iter_per_epoch).view()          
+                leaf_idx2 = np.sum(leaf_idx2, axis=1)
+                leaf_idx2 = min_max_scaler.fit_transform(leaf_idx2)
+                print("2", leaf_idx2[7589])
+                '''
+
+                # epoch leaf indexes
+                leaf_idx_cur = self.cur_gbdt.calc_leaf_indexes(X)
+                leaf_idx_cur = min_max_scaler.fit_transform(leaf_idx_cur)
+                self.leaf_idx_before = np.append(self.leaf_idx_before, leaf_idx_cur, axis=1)
+                leaf_idx_reshaped = self.leaf_idx_before.reshape(len(X), -1, self.iter_per_epoch).view()          
+                leaf_idx = np.sum(leaf_idx_reshaped, axis=1)
+                # print(leaf_idx[7589])
                 leaf_idx = min_max_scaler.fit_transform(leaf_idx)
+                
 
         if not self.only_gbdt:
             if self.train_residual:
@@ -130,7 +145,7 @@ class BGNN(BaseModel):
         #     # print("residual:", residual.shape)
             
         # except Exception as e:
-        residual = (node_features - node_features_before).detach().cpu().numpy()[train_mask, -self.out_dim:]
+        residual = (node_features - node_features_before).detach().cpu().numpy()[train_mask, -self.iter_per_epoch:]
             
         return residual
 
@@ -186,6 +201,7 @@ class BGNN(BaseModel):
 
         gbdt_X_train = X.iloc[train_mask]
         gbdt_y_train = y.iloc[train_mask]
+        all_mask = train_mask + val_mask + test_mask
         
         gbdt_alpha = 1
         self.gbdt_model = None
@@ -222,7 +238,7 @@ class BGNN(BaseModel):
                             self.iter_per_epoch, gbdt_alpha)
 
             # return updated node features
-            self.update_node_features(node_features, X, encoded_X)
+            self.update_node_features(node_features, X, encoded_X, all_mask)
             node_features_before = node_features.clone()
             # print("node_features:", node_features.shape)
             # print("node_features_before:", node_features_before.shape)
