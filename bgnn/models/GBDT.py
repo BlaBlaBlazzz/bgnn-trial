@@ -5,6 +5,8 @@ import numpy as np
 from collections import defaultdict as ddict
 import lightgbm
 from lightgbm import LGBMClassifier, LGBMRegressor
+import xgboost as xgb
+from xgboost import XGBClassifier, XGBRegressor
 
 class GBDTCatBoost:
     def __init__(self, task='regression', depth=6, lr=0.1, l2_leaf_reg=None, max_bin=None):
@@ -39,12 +41,13 @@ class GBDTCatBoost:
             if 'validation_0' in self.model.evals_result_ \
             else ['learn', 'validation']
         for metric_name in d[keys[0]]:
+            print(metric_name)
             perf = [d[key][metric_name] for key in keys]
             if metric_name == self.catboost_loss_function:
                 metrics['loss'] = list(zip(*perf))
             else:
                 metrics[metric_name.lower()] = list(zip(*perf))
-
+        # print("m", metrics)
         return metrics
 
     def get_test_metric(self, metrics, metric_name):
@@ -114,6 +117,7 @@ class GBDTLGBM:
 
     def accuracy(self, preds, train_data):
         labels = train_data.get_label()
+        print(labels.shape)
         preds_classes = preds.reshape((preds.shape[0]//labels.shape[0], labels.shape[0])).argmax(0)
         return 'accuracy', accuracy_score(labels, preds_classes), True
 
@@ -137,7 +141,7 @@ class GBDTLGBM:
             # 'feature_fraction': 0.9,
             # 'bagging_fraction': 0.8,
             # 'bagging_freq': 5,
-            'verbose': 1,
+            'verbose': -1,
             #     'device_type': 'gpu'
         }
         self.evals_result = dict()
@@ -149,6 +153,7 @@ class GBDTLGBM:
             if 'training' in d \
             else ['valid_0', 'valid_1']
         for metric_name in d[keys[0]]:
+            print(metric_name)
             perf = [d[key][metric_name] for key in keys]
             if metric_name in ['regression', 'multiclass', 'rmse', 'l2', 'multi_logloss', 'binary_logloss']:
                 metrics['loss'] = list(zip(*perf))
@@ -221,3 +226,130 @@ class GBDTLGBM:
         metrics['rmse'] = mean_squared_error(pred, y_test) ** .5
 
         return metrics
+
+class GBDTXGBoost:
+    def __init__(self, task='regression', max_depth=6, lr=0.1, 
+                 gamma=0, min_child_weight=1, scale_pos_weight=1, booster='gbtree'):
+        self.task = task
+        self.max_depth = max_depth
+        self.learning_rate = lr
+        self.gamma = gamma
+        self.min_child_weight = min_child_weight
+        self.scale_pos_weight = scale_pos_weight
+        self.booster = booster
+
+    def init_model(self, num_epochs, patience):
+        XGB_model = XGBRegressor if self.task == 'regression' else XGBClassifier
+        XGB_model_obj = 'reg:linear' if self.task == 'regression' else 'multi:softmax'
+        self.eval_metrics = ['rmse'] if self.task == 'regression' else ['merror']
+
+        self.param = {
+            'objective': XGB_model_obj,
+            # 'n_estimators': num_epochs,
+            # 'eval_metric': self.eval_metrics,
+            'num_class': self.num_classes,
+            'max_depth': self.max_depth,
+            'learning_rate': self.learning_rate,
+            'min_child_weight': self.min_child_weight,
+            'gamma': self.gamma,
+            'booster': self.booster,
+            # 'verbose': 0
+        }
+        
+        # self.model = XGB_model(n_estimators = num_epochs,
+        #                        objective = XGB_model_obj,
+        #                        max_depth = self.max_depth,
+        #                        learning_rate = self.learning_rate,
+        #                        min_child_weight = self.min_child_weight,
+        #                        #scale_pos_weight = self.scale_pos_weight,
+        #                        gamma = self.gamma,
+        #                        booster = self.booster,
+        #                        seed = 0)
+    
+    def accuracy(self, preds, train_data):
+        labels = train_data.get_label()
+        y_pred = preds.argmax(axis=1)
+        # preds_classes = preds.reshape((preds.shape[0]//labels.shape[0], labels.shape[0])).argmax(0)
+        accuracy = accuracy_score(labels, y_pred)
+        return 'accuracy', accuracy
+    
+    
+    def get_metrics(self, d):
+        # d = self.model.evals_result()
+        metrics = ddict(list)
+        keys = ['training', 'validation_0', 'validation_1'] \
+            if 'validation_0' in d \
+            else ['train', 'val', 'test']
+        for metric_name in d[keys[0]]:
+            per = [d[key][metric_name] for key in keys]
+            if metric_name in ['rmse', 'multiclass']:
+                metrics['loss'] = list(zip(*per))
+            else:
+                metrics[metric_name] = list(zip(*per))        
+        return metrics
+    
+    def get_test_metric(self, metrics, metric_name):
+        if metric_name == 'loss':
+            val_epoch = np.argmin([acc[1] for acc in metrics[metric_name]])
+        else:
+            val_epoch = np.argmax([acc[1] for acc in metrics[metric_name]])
+        min_metric = metrics[metric_name][val_epoch]
+        return min_metric, val_epoch
+    
+    def train_val_test_split(self, X, y, train_masks, val_masks, test_masks):
+        X_train, y_train = X.iloc[train_masks], y.iloc[train_masks]
+        X_val, y_val = X.iloc[val_masks], y.iloc[val_masks]
+        X_test, y_test = X.iloc[test_masks], y.iloc[test_masks]
+        return X_train, y_train, X_val, y_val, X_test, y_test
+    
+    def fit(self, X, y,
+            train_masks, val_masks, test_masks,
+            cat_features=None, num_epochs=300, patience=200,
+            loss_fn="", metric_name='loss'):
+        
+        # spliting dataset
+        X_train, y_train, X_val, y_val, X_test, y_test = \
+            self.train_val_test_split(X, y, train_masks, val_masks, test_masks)
+        self.num_classes = None if self.task == 'regression' else len(set(y.iloc[:, 0]))
+        self.init_model(num_epochs, patience)
+        evals_result = {}
+
+        start = time.time()
+        train_data = xgb.DMatrix(X_train, label=y_train)
+        val_data = xgb.DMatrix(X_val, label=y_val)
+        test_data = xgb.DMatrix(X_test, label=y_test)
+
+        eval_set = [(X_val, y_val), (X_test, y_test)]
+        eval_set = [(train_data, 'train'), (val_data, 'val'), (test_data, 'test')]
+        # self.model.fit(X_train, y_train,
+        #                eval_set = eval_set,
+        #                eval_metric ='rmse' if self.task=='regression' else self.accuracy,
+        #                early_stopping_rounds = patience,
+        #                verbose = 0)
+        self.model = xgb.train(self.param,
+                               train_data, evals=eval_set,
+                               evals_result=evals_result,
+                               feval = self.accuracy,
+                               early_stopping_rounds = patience)
+        end = time.time()
+
+        print('Finished training. Total time: {:.2f}'.format(end - start))
+
+        metrics = self.get_metrics(evals_result)
+        min_metric, min_val_epoch = self.get_test_metric(metrics, metric_name)
+        print('Best {} at iteration {}: {:.3f}/{:.3f}/{:.3f}'.format(metric_name, min_val_epoch, *min_metric))
+        return metrics
+    
+    def predict(self, X_test, y_test):
+        pred = self.model.predict(X_test)
+        metrics = {}
+        metrics['rmse'] = mean_squared_error(pred, y_test) ** .5
+
+        return metrics
+
+
+
+
+
+        
+        
