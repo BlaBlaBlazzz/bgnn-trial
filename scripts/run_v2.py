@@ -3,11 +3,12 @@ import os
 curPath = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(curPath)
 
-from bgnn.models.GBDT import GBDTCatBoost, GBDTLGBM
+from bgnn.models.GBDT import GBDTCatBoost, GBDTLGBM, GBDTXGBoost
 from bgnn.models.MLP import MLP
 from bgnn.models.GNN import GNN
 from bgnn.models.BGNN_v2 import BGNN
 from bgnn.scripts.utils import NpEncoder
+from bgnn.models.Base import BaseModel
 
 import os
 import json
@@ -16,6 +17,7 @@ import datetime
 from pathlib import Path
 from collections import defaultdict as ddict
 
+
 import pandas as pd
 import networkx as nx
 import random
@@ -23,6 +25,7 @@ import numpy as np
 import fire
 from omegaconf import OmegaConf
 from sklearn.model_selection import ParameterGrid
+import xgboost as xgb
 
 
 class RunModel:
@@ -87,8 +90,14 @@ class RunModel:
             input_folder = dataset_dir / 'slap'
         elif dataset == 'slap_v2':
             input_folder = dataset_dir / 'slap_v2'
+        elif dataset == 'slap_s10':
+            input_folder = dataset_dir / 'slap_s10'
+        elif dataset == 'slap_s4':
+            input_folder = dataset_dir / 'slap_s4'
+        elif dataset == 'optdigit':
+            input_folder = dataset_dir / 'optdigit'
         else:
-            input_folder = dataset
+            input_folder = dataset_dir / dataset
 
         if self.save_folder is None:
             self.save_folder = f'results/{dataset}/{datetime.datetime.now().strftime("%d_%m")}'
@@ -115,13 +124,19 @@ class RunModel:
 
                 inputs = {'X': self.X, 'y': self.y, 'train_mask': self.train_mask,
                           'val_mask': self.val_mask, 'test_mask': self.test_mask, 'cat_features': self.cat_features}
-                if model_name in ['gnn', 'resgnn', 'bgnn']:
+                if model_name in ['gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG']:
                     inputs['networkx_graph'] = self.networkx_graph
 
                 metrics = model.fit(num_epochs=self.config.num_epochs, patience=self.config.patience,
                            loss_fn=f"{self.seed_folder}/{exp_name}.txt",
                            metric_name='loss' if self.task == 'regression' else 'accuracy', **inputs)
                 finish = time.time()
+
+                # emb-GBDT part
+                if model_name in ['gnn']:
+                    metrics = self.train_emb_gbdt(model)
+                # print(metrics)
+
                 best_loss = min(metrics['loss'], key=lambda x: x[1])
                 best_custom = max(metrics['r2' if self.task == 'regression' else 'accuracy'], key=lambda x: x[1])
                 runs.append(best_loss)
@@ -132,6 +147,25 @@ class RunModel:
                                        np.mean(times),
                                        )
 
+    def train_emb_gbdt(self, model):
+        x = model.pandas_to_torch(self.X)[0]
+        node_features = model.init_node_features(x, False)
+        graph = model.networkx_to_torch(self.networkx_graph)
+        # node embedding
+        node_embedding = model.model(graph, node_features).detach().cpu().numpy()
+        
+        gbdt = GBDTCatBoost(self.task)
+        X = self.X.copy()
+        metrics = gbdt.fit(X, self.y, self.train_mask, self.val_mask, self.test_mask,
+                          cat_features=self.cat_features,
+                          num_epochs=100, patience=100,
+                          plot=False, verbose=False, loss_fn=None,
+                          metric_name='loss' if self.task == 'regression' else 'accuracy',
+                          gnn_embedding = node_embedding)
+        return metrics
+
+        
+    
     def define_model(self, model_name, ps):
         if model_name == 'catboost':
             return GBDTCatBoost(self.task, **ps)
@@ -145,10 +179,35 @@ class RunModel:
             gbdt = GBDTCatBoost(self.task)
             gbdt.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
                      cat_features=self.cat_features,
-                     num_epochs=1000, patience=100,
+                     num_epochs=100, patience=100,
                      plot=False, verbose=False, loss_fn=None,
                      metric_name='loss' if self.task == 'regression' else 'accuracy')
-            return GNN(task=self.task, gbdt_predictions=gbdt.model.predict(self.X), **ps)
+            prediction = gbdt.model.predict(self.X)
+            leaf_idx = gbdt.model.calc_leaf_indexes(self.X)
+            # print("leaf_idx", leaf_idx)
+            return GNN(task=self.task, gbdt_predictions=leaf_idx, **ps)
+        elif model_name == 'resgnnL':
+            gbdt = GBDTLGBM(self.task)
+            gbdt.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
+                     cat_features = self.cat_features,
+                     num_epochs = 300, patience = 100,
+                     loss_fn=None, metric_name='accuracy')
+            predictions = gbdt.model.predict(self.X)
+            predictions = [np.argmax(line) for line in predictions]
+            predictions = np.reshape(predictions, (len(predictions), 1))
+            # print("prediction:", predictions.shape)
+            return GNN(task=self.task, gbdt_predictions=predictions, **ps)
+        elif model_name == 'resgnnXG':
+            gbdt = GBDTXGBoost(self.task)
+            gbdt.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
+                     cat_features = self.cat_features,
+                     num_epochs = 300, patience = 100,
+                     loss_fn=None, metric_name='accuracy')
+            dX = xgb.DMatrix(self.X)
+            predictions = gbdt.model.predict(dX)
+            predictions = np.reshape(predictions, (len(predictions), 1))
+            return GNN(task=self.task, gbdt_predictions=predictions, **ps)
+
         elif model_name == 'bgnn':
             return BGNN(self.task, **ps)
 
@@ -187,7 +246,7 @@ class RunModel:
         return 'unknown'
 
     def aggregate_results(self):
-        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn']
+        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -265,6 +324,12 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'gnn.yaml', model_name="gnn")
                 elif arg == 'resgnn':
                     self.run_one_model(config_fn=config_dir / 'resgnn.yaml', model_name="resgnn")
+                elif arg == 'resgnnL':
+                    self.run_one_model(config_fn=config_dir / 'resgnnL.yaml', model_name="resgnnL")
+                elif arg == 'resgnnSVM':
+                    self.run_one_model(config_fn=config_dir / 'resgnnSVM.yaml', model_name="resgnnSVM")
+                elif arg == 'resgnnXG':
+                    self.run_one_model(config_fn=config_dir / 'resgnnXG.yaml', model_name="resgnnXG")
                 elif arg == 'bgnn':
                     self.run_one_model(config_fn=config_dir / 'bgnn.yaml', model_name="bgnn")
                 elif arg == 'bgnn_v2':
