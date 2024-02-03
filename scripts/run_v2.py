@@ -133,8 +133,8 @@ class RunModel:
                 finish = time.time()
 
                 # emb-GBDT part
-                if model_name in ['gnn']:
-                    metrics = self.train_emb_gbdt(model)
+                # if model_name in ['gnn']:
+                #     metrics = self.train_emb_gbdt(model)
                 # print(metrics)
 
                 best_loss = min(metrics['loss'], key=lambda x: x[1])
@@ -175,6 +175,19 @@ class RunModel:
             return MLP(self.task, **ps)
         elif model_name == 'gnn':
             return GNN(self.task, **ps)
+        elif model_name == 'emb-GBDT':
+            model = GNN(self.task)
+            x = model.pandas_to_torch(self.X)[0]
+            node_features = model.init_node_features(x, False)
+            graph = model.networkx_to_torch(self.networkx_graph)
+            # node embedding
+            model.fit(self.networkx_graph, self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
+                      cat_features=self.cat_features, 
+                      num_epochs=1000, patience=100,
+                      metric_name='loss' if self.task == 'regression' else 'accuracy')
+            node_embedding = model.model(graph, node_features).detach().cpu().numpy()
+            # print(node_embedding)
+            return GBDTCatBoost(self.task, **ps, gnn_embedding=node_embedding)
         elif model_name == 'resgnn':
             gbdt = GBDTCatBoost(self.task)
             gbdt.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
@@ -246,7 +259,7 @@ class RunModel:
         return 'unknown'
 
     def aggregate_results(self):
-        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG']
+        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG','emb-GBDT']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -334,6 +347,8 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'bgnn.yaml', model_name="bgnn")
                 elif arg == 'bgnn_v2':
                     self.run_one_model(config_fn=config_dir / 'bgnn_v2.yaml', model_name="bgnn_v2")
+                elif arg == 'emb-GBDT':
+                    self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
 
             self.save_results(seed)
             if ix+1 >= max_seeds:
