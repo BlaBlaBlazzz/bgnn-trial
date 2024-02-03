@@ -9,12 +9,13 @@ import xgboost as xgb
 from xgboost import XGBClassifier, XGBRegressor
 
 class GBDTCatBoost:
-    def __init__(self, task='regression', depth=6, lr=0.1, l2_leaf_reg=None, max_bin=None):
+    def __init__(self, task='regression', depth=6, lr=0.1, l2_leaf_reg=None, max_bin=None, gnn_embedding=None):
         self.task = task
         self.depth = depth
         self.learning_rate = lr
         self.l2_leaf_reg = l2_leaf_reg
         self.max_bin = max_bin
+        self.gnn_embedding = gnn_embedding
 
 
     def init_model(self, num_epochs, patience):
@@ -41,7 +42,7 @@ class GBDTCatBoost:
             if 'validation_0' in self.model.evals_result_ \
             else ['learn', 'validation']
         for metric_name in d[keys[0]]:
-            print(metric_name)
+            # print(metric_name)
             perf = [d[key][metric_name] for key in keys]
             if metric_name == self.catboost_loss_function:
                 metrics['loss'] = list(zip(*perf))
@@ -73,8 +74,13 @@ class GBDTCatBoost:
             X, y, train_mask, val_mask, test_mask,
             cat_features=None, num_epochs=1000, patience=200,
             plot=False, verbose=False,
-            loss_fn="", metric_name='loss'):
+            loss_fn="", metric_name='loss', gnn_embedding=None):
 
+        if self.gnn_embedding is not None:
+            for i in range(self.gnn_embedding.shape[1]):
+                X[X.shape[1]+2+i] = self.gnn_embedding[:, i]
+        # print("X", X)
+        
         X_train, y_train, X_val, y_val, X_test, y_test = \
             self.train_val_test_split(X, y, train_mask, val_mask, test_mask)
         self.init_model(num_epochs, patience)
@@ -117,7 +123,7 @@ class GBDTLGBM:
 
     def accuracy(self, preds, train_data):
         labels = train_data.get_label()
-        print(labels.shape)
+        # print(labels.shape)
         preds_classes = preds.reshape((preds.shape[0]//labels.shape[0], labels.shape[0])).argmax(0)
         return 'accuracy', accuracy_score(labels, preds_classes), True
 
@@ -153,7 +159,7 @@ class GBDTLGBM:
             if 'training' in d \
             else ['valid_0', 'valid_1']
         for metric_name in d[keys[0]]:
-            print(metric_name)
+            # print(metric_name)
             perf = [d[key][metric_name] for key in keys]
             if metric_name in ['regression', 'multiclass', 'rmse', 'l2', 'multi_logloss', 'binary_logloss']:
                 metrics['loss'] = list(zip(*perf))
@@ -305,7 +311,7 @@ class GBDTXGBoost:
     def fit(self, X, y,
             train_masks, val_masks, test_masks,
             cat_features=None, num_epochs=300, patience=200,
-            loss_fn="", metric_name='loss'):
+            loss_fn="", metric_name='loss', gnn_prediction=None):
         
         # spliting dataset
         X_train, y_train, X_val, y_val, X_test, y_test = \
