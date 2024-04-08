@@ -86,8 +86,14 @@ class RunModel:
             input_folder = dataset_dir / 'slap'
         elif dataset == 'slap_v2':
             input_folder = dataset_dir / 'slap_v2'
+        elif dataset == 'slap_s10':
+            input_folder = dataset_dir / 'slap_s10'
+        elif dataset == 'slap_s4':
+            input_folder = dataset_dir / 'slap_s4'
+        elif dataset == 'optdigit':
+            input_folder = dataset_dir / 'optdigit'
         else:
-            input_folder = dataset
+            input_folder = dataset_dir / dataset
 
         if self.save_folder is None:
             self.save_folder = f'results/{dataset}/{datetime.datetime.now().strftime("%d_%m")}'
@@ -147,6 +153,7 @@ class RunModel:
                      num_epochs=1000, patience=100,
                      plot=False, verbose=False, loss_fn=None,
                      metric_name='loss' if self.task == 'regression' else 'accuracy')
+            # print(gbdt.model.predict(self.X).shape)
             return GNN(task=self.task, gbdt_predictions=gbdt.model.predict(self.X), **ps)
         elif model_name == 'bgnn':
             return BGNN(self.task, **ps)

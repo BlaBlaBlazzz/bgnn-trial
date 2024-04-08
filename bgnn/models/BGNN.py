@@ -50,7 +50,8 @@ class BGNN(BaseModel):
                                   learning_rate=self.gbdt_lr,
                                   loss_function=catboost_loss_fn,
                                   random_seed=0,
-                                  nan_mode='Min')
+                                  nan_mode='Min',
+                                  allow_const_label=True)
 
     def fit_gbdt(self, pool, trees_per_epoch, epoch):
         gbdt_model = self.init_gbdt_model(trees_per_epoch, epoch)
@@ -90,9 +91,11 @@ class BGNN(BaseModel):
             #                                                         prediction_type='TotalUncertainty')
         else:
             predictions = self.base_gbdt.predict_proba(X)
+            # print(predictions[0])
             # predictions = self.base_gbdt.predict(X, prediction_type='RawFormulaVal')
             if self.gbdt_model is not None:
                 predictions_after_one = self.gbdt_model.predict(X)
+                # print(predictions_after_one[0])
                 predictions += predictions_after_one
 
         if not self.only_gbdt:
@@ -111,9 +114,10 @@ class BGNN(BaseModel):
 
     def init_node_features(self, X):
         node_features = torch.empty(X.shape[0], self.in_dim, requires_grad=True, device=self.device)
-        # print("node_features:", node_features.shape)
+        print("node_features:", node_features[0])
         if not self.only_gbdt:
             node_features.data[:, :-self.out_dim] = torch.from_numpy(X.to_numpy(copy=True))
+            print("node_features:", node_features[0])
         return node_features
 
     def init_node_parameters(self, num_nodes):
@@ -139,6 +143,10 @@ class BGNN(BaseModel):
             normalize_features=True, replace_na=True,
             ):
 
+        
+        # print("train_mask:", len(train_mask))
+        # print("val_mask:", len(val_mask))
+        # print("test_mask:", len(test_mask))
         # initialize for early stopping and metrics
         if metric_name in ['r2', 'accuracy']:
             best_metric = [np.float('-inf')] * 3  # for train/val/test
@@ -163,6 +171,7 @@ class BGNN(BaseModel):
         gbdt_X_train = X.iloc[train_mask]
         # print(gbdt_X_train.shape)
         gbdt_y_train = y.iloc[train_mask]
+        # print("gbdt_y_train", gbdt_y_train)
         gbdt_alpha = 1
         self.gbdt_model = None
 
@@ -202,6 +211,7 @@ class BGNN(BaseModel):
             model_in=(graph, node_features)
             loss = self.train_and_evaluate(model_in, y, train_mask, val_mask, test_mask,
                                            optimizer, metrics, self.iter_per_epoch)
+            # print("node_feature:", node_features)
             gbdt_y_train = self.update_gbdt_targets(node_features, node_features_before, train_mask)
 
             self.log_epoch(pbar, metrics, epoch, loss, time.time() - start2epoch, logging_epochs,

@@ -18,6 +18,7 @@ class BaseModel(torch.nn.Module):
         import dgl
         # graph = dgl.DGLGraph()
         graph = dgl.from_networkx(networkx_graph)
+        # print(graph)
         graph = dgl.remove_self_loop(graph)
         graph = dgl.add_self_loop(graph)
         graph = graph.to(self.device)
@@ -77,13 +78,17 @@ class BaseModel(torch.nn.Module):
         y = target_labels[train_mask]
 
         self.model.train()
+        # logits is the node embedding !!
         logits = self.model(*model_in).squeeze()
         pred = logits[train_mask]
 
         if self.task == 'regression':
             loss = torch.sqrt(F.mse_loss(pred, y))
         elif self.task == 'classification':
-            loss = F.cross_entropy(pred, y.long())
+            # Adding softmax layer
+            pred_prob = F.softmax(pred, dim=-1)
+            # calculate cross entropy
+            loss = F.cross_entropy(pred_prob, y.long())
         else:
             raise NotImplemented("Unknown task. Supported tasks: classification, regression.")
 

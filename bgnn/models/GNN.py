@@ -231,7 +231,7 @@ class GNN(BaseModel):
 
     def fit(self, networkx_graph, X, y, train_mask, val_mask, test_mask, num_epochs,
             cat_features=None, patience=200, logging_epochs=1, optimize_node_features=False,
-            loss_fn=None, metric_name='loss', normalize_features=True, replace_na=True):
+            loss_fn=None, metric_name='loss', normalize_features=True, replace_na=True, node_features=None):
 
         # initialize for early stopping and metrics
         if metric_name in ['r2', 'accuracy']:
@@ -246,7 +246,11 @@ class GNN(BaseModel):
 
         if self.gbdt_predictions is not None:
             X = X.copy()
-            X['predict'] = self.gbdt_predictions
+            # X['predict'] = self.gbdt_predictions
+            for i in range(self.gbdt_predictions.shape[1]):
+                X[X.shape[1]+i] = self.gbdt_predictions[:,i]
+            # print("x", X)
+            
             if self.only_gbdt:
                 cat_features = []
                 X = X[['predict']]
@@ -260,11 +264,13 @@ class GNN(BaseModel):
 
         if len(cat_features):
             X = self.encode_cat_features(X, y, cat_features, train_mask, val_mask, test_mask)
-        if normalize_features:
-            X = self.normalize_features(X, train_mask, val_mask, test_mask)
         if replace_na:
             X = self.replace_na(X, train_mask)
+        if normalize_features:
+            X = self.normalize_features(X, train_mask, val_mask, test_mask)
+        
 
+        
         X, y = self.pandas_to_torch(X, y)
         if len(X.shape) == 1:
             X = X.unsqueeze(1)
@@ -274,11 +280,15 @@ class GNN(BaseModel):
         elif self.lang == 'pyg':
             graph = self.networkx_to_torch2(networkx_graph)
         self.init_model()
-        node_features = self.init_node_features(X, optimize_node_features)
 
-        self.node_features = node_features
+        if node_features is None:
+            node_features = self.init_node_features(X, optimize_node_features)
+            self.node_features = node_features
+        f = self.init_node_features(X, optimize_node_features)
+
         self.graph = graph
         optimizer = self.init_optimizer(node_features, optimize_node_features, self.learning_rate)
+        # print("optimize_node_features:", optimize_node_features)
 
         pbar = tqdm(range(num_epochs))
         for epoch in pbar:
@@ -287,6 +297,8 @@ class GNN(BaseModel):
             model_in = (graph, node_features)
             loss = self.train_and_evaluate(model_in, y, train_mask, val_mask, test_mask, optimizer,
                                            metrics, gnn_passes_per_epoch=1)
+            # print(torch.equal(f, node_features))
+            # print("node_feature:", node_features)
             self.log_epoch(pbar, metrics, epoch, loss, time.time() - start2epoch, logging_epochs,
                            metric_name=metric_name)
 
@@ -295,6 +307,8 @@ class GNN(BaseModel):
                 self.update_early_stopping(metrics, epoch, best_metric, best_val_epoch, epochs_since_last_best_metric,
                                            metric_name, lower_better=(metric_name not in ['r2', 'accuracy']))
             if patience and epochs_since_last_best_metric > patience:
+                # node_embedding = self.model(graph, node_features)
+                # print("node_embedding:", node_embedding)
                 break
 
         if loss_fn:

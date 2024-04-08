@@ -31,8 +31,8 @@ def gen_mask_json():
     
 
 def write_sampling_masks():
-    data_path = "./datasets/slap/y.csv"
-    mask_path = './datasets/slap/masks.json'
+    data_path = "./datasets/wdbc/y.csv"
+    mask_path = './datasets/wdbc/masks.json'
     label = pd.read_csv(data_path)
     masks = read_json(mask_path)
     # sample
@@ -48,9 +48,9 @@ def sampling(label, masks):
         [class_dict[int(label.iloc[i])].append(i) for i in ids]
 
         # sampling 10 ids in train, val progress
-        masks[key]["train"] = [item for i in range(int(max(label["class"])) + 1) for item in class_dict[i][:10]]
-        masks[key]["val"] = [item for i in range(int(max(label["class"])) + 1) for item in class_dict[i][10:20]]
-        masks[key]["test"] = [item for i in range(int(max(label["class"])) + 1) for item in class_dict[i][20:]]
+        masks[key]["train"] = [item for i in range(int(max(label["class"])) + 1) for item in class_dict[i][:4]]
+        masks[key]["val"] = [item for i in range(int(max(label["class"])) + 1) for item in class_dict[i][4:8]]
+        masks[key]["test"] = [item for i in range(int(max(label["class"])) + 1) for item in class_dict[i][8:]]
 
         # random shuffle
         random.shuffle(masks[key]["train"])
