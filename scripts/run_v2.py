@@ -6,7 +6,8 @@ sys.path.append(curPath)
 from bgnn.models.GBDT import GBDTCatBoost, GBDTLGBM, GBDTXGBoost
 from bgnn.models.MLP import MLP
 from bgnn.models.GNN import GNN
-from bgnn.models.BGNN_v2 import BGNN
+from bgnn.models.BGNN import BGNN
+from bgnn.models.BGNN_v2 import BGNN_v2
 from bgnn.scripts.utils import NpEncoder
 from bgnn.models.Base import BaseModel
 
@@ -88,14 +89,6 @@ class RunModel:
             input_folder = dataset_dir / 'dblp'
         elif dataset == 'slap':
             input_folder = dataset_dir / 'slap'
-        elif dataset == 'slap_v2':
-            input_folder = dataset_dir / 'slap_v2'
-        elif dataset == 'slap_s10':
-            input_folder = dataset_dir / 'slap_s10'
-        elif dataset == 'slap_s4':
-            input_folder = dataset_dir / 'slap_s4'
-        elif dataset == 'optdigit':
-            input_folder = dataset_dir / 'optdigit'
         else:
             input_folder = dataset_dir / dataset
 
@@ -124,7 +117,7 @@ class RunModel:
 
                 inputs = {'X': self.X, 'y': self.y, 'train_mask': self.train_mask,
                           'val_mask': self.val_mask, 'test_mask': self.test_mask, 'cat_features': self.cat_features}
-                if model_name in ['gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG']:
+                if model_name in ['gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'bgnn_v2']:
                     inputs['networkx_graph'] = self.networkx_graph
 
                 metrics = model.fit(num_epochs=self.config.num_epochs, patience=self.config.patience,
@@ -146,6 +139,7 @@ class RunModel:
                                        list(map(np.mean, zip(*runs_custom))),
                                        np.mean(times),
                                        )
+            # print("store result:", self.store_results)
 
     def train_emb_gbdt(self, model):
         x = model.pandas_to_torch(self.X)[0]
@@ -192,6 +186,16 @@ class RunModel:
             gbdt = GBDTCatBoost(self.task)
             gbdt.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
                      cat_features=self.cat_features,
+                     num_epochs=1000, patience=100,
+                     plot=False, verbose=False, loss_fn=None,
+                     metric_name='loss' if self.task == 'regression' else 'accuracy')
+            # print(gbdt.model.predict(self.X).shape)
+            return GNN(task=self.task, gbdt_predictions=gbdt.model.predict(self.X), **ps)
+        # resgnn with leaf index
+        elif model_name == 'resgnn_LI':
+            gbdt = GBDTCatBoost(self.task)
+            gbdt.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
+                     cat_features=self.cat_features,
                      num_epochs=100, patience=100,
                      plot=False, verbose=False, loss_fn=None,
                      metric_name='loss' if self.task == 'regression' else 'accuracy')
@@ -223,6 +227,8 @@ class RunModel:
 
         elif model_name == 'bgnn':
             return BGNN(self.task, **ps)
+        elif model_name == 'bgnn_v2':
+            return BGNN_v2(self.task, **ps)
 
     def create_save_folder(self, seed):
         self.seed_folder = f'{self.save_folder}/{seed}'
@@ -243,8 +249,12 @@ class RunModel:
 
     def get_model_name(self, exp_name: str, algos: list):
         # get name of the model (for gnn-like models (eg. gat))
+        # print("exp name:", exp_name)
+        # print("algos:", algos)
         if 'name' in exp_name:
+            # print("1")
             model_name = '-' + [param[4:] for param in exp_name.split('-') if param.startswith('name')][0]
+            # print("model_name:", model_name)
         else:
             model_name = ''
 
@@ -254,12 +264,12 @@ class RunModel:
 
         # algo corresponds to type of the model (eg. gnn, resgnn, bgnn)
         for algo in algos:
-            if exp_name.startswith(algo):
-                return algo + model_name
+            if algo in exp_name.split("-"):
+                return  algo + model_name
         return 'unknown'
 
     def aggregate_results(self):
-        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG','emb-GBDT']
+        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'bgnn_v2', 'resgnnL', 'resgnnSVM', 'resgnnXG','emb-GBDT']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -267,6 +277,7 @@ class RunModel:
         for seed in results:
             model_results_for_seed = ddict(list)
             for name, output in results[seed].items():
+                # print("name:", name)
                 model_name = self.get_model_name(name, algos=algos)
                 if self.task == 'regression': # rmse metric
                     val_metric, test_metric, time = output[0][1], output[0][2], output[2]
@@ -284,6 +295,9 @@ class RunModel:
 
         aggregated = dict()
         for model, scores in model_best_score.items():
+            # print(model)
+            # print(scores)
+            # print("model best time:", model_best_time[model])
             aggregated[model] = (np.mean(scores), np.std(scores),
                                  np.mean(model_best_time[model]), np.std(model_best_time[model]))
         return aggregated
@@ -292,7 +306,7 @@ class RunModel:
             save_folder: str = None,
             task: str = 'regression',
             repeat_exp: int = 1,
-            max_seeds: int = 3,
+            max_seeds: int = 5,
             dataset_dir: str = None,
             config_dir: str = None
             ):
@@ -311,6 +325,7 @@ class RunModel:
 
         self.seed_results = dict()
         for ix, seed in enumerate(self.masks):
+            # print("ix:", ix, "seed:", seed)
             print(f'{dataset} Seed {seed}')
             self.seed = seed
 
@@ -320,12 +335,16 @@ class RunModel:
             self.store_results = dict()
             for arg in args:
                 if arg == 'all':
-                    self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
-                    self.run_one_model(config_fn=config_dir / 'lightgbm.yaml', model_name="lightgbm")
-                    self.run_one_model(config_fn=config_dir / 'mlp.yaml', model_name="mlp")
-                    self.run_one_model(config_fn=config_dir / 'gnn.yaml', model_name="gnn")
-                    self.run_one_model(config_fn=config_dir / 'resgnn.yaml', model_name="resgnn")
+                    # self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
+                    # self.run_one_model(config_fn=config_dir / 'mlp.yaml', model_name="mlp")
                     self.run_one_model(config_fn=config_dir / 'bgnn.yaml', model_name="bgnn")
+                    self.run_one_model(config_fn=config_dir / 'bgnn_v2.yaml', model_name="bgnn_v2")
+                    self.run_one_model(config_fn=config_dir / 'resgnn.yaml', model_name="resgnn")
+                    self.run_one_model(config_fn=config_dir / 'resgnn_LI.yaml', model_name="resgnn_LI")
+                    self.run_one_model(config_fn=config_dir / 'resgnnL.yaml', model_name="resgnnL")
+                    self.run_one_model(config_fn=config_dir / 'resgnnXG.yaml', model_name="resgnnXG")
+                    self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
+                    self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
                     break
                 elif arg == 'catboost':
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
@@ -337,6 +356,8 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'gnn.yaml', model_name="gnn")
                 elif arg == 'resgnn':
                     self.run_one_model(config_fn=config_dir / 'resgnn.yaml', model_name="resgnn")
+                elif arg == 'resgnn_LI':
+                    self.run_one_model(config_fn=config_dir / 'resgnn.yaml', model_name="resgnn_LI")
                 elif arg == 'resgnnL':
                     self.run_one_model(config_fn=config_dir / 'resgnnL.yaml', model_name="resgnnL")
                 elif arg == 'resgnnSVM':

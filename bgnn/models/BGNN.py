@@ -114,10 +114,10 @@ class BGNN(BaseModel):
 
     def init_node_features(self, X):
         node_features = torch.empty(X.shape[0], self.in_dim, requires_grad=True, device=self.device)
-        print("node_features:", node_features[0])
+        # print("node_features:", node_features[0])
         if not self.only_gbdt:
             node_features.data[:, :-self.out_dim] = torch.from_numpy(X.to_numpy(copy=True))
-            print("node_features:", node_features[0])
+            # print("node_features:", node_features[0])
         return node_features
 
     def init_node_parameters(self, num_nodes):

@@ -23,13 +23,6 @@ def write_json(data, path):
     with open(path, "w") as f:
         json.dump(data, f)
 
-def gen_mask_json():
-    path = './slap/masks.json'
-    mask = read_json(path)
-    mask_scaling(mask, [0.05, 0.05, 0.9])
-    write_json(mask, "slap_v2.json")
-    
-
 def write_sampling_masks():
     data_path = "./datasets/wdbc/y.csv"
     mask_path = './datasets/wdbc/masks.json'

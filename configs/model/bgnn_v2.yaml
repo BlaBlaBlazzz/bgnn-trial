@@ -15,7 +15,6 @@ hp:
   - appnp
   only_gbdt: 
   - False
-  - True
   dropout:
   - 0.
   - 0.5

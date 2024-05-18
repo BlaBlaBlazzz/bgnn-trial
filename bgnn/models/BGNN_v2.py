@@ -10,7 +10,7 @@ from sklearn import preprocessing
 from tqdm import tqdm
 from collections import defaultdict as ddict
 
-class BGNN(BaseModel):
+class BGNN_v2(BaseModel):
     def __init__(self,
                  task='regression', iter_per_epoch = 10, lr=0.01, hidden_dim=64, dropout=0.,
                  only_gbdt=False, train_non_gbdt=False,
