@@ -2,7 +2,13 @@ import itertools
 import time
 import numpy as np
 import torch
+import dgl
+import random
+import warnings
+import networkx as nx
+import pandas as pd
 
+from sklearn.metrics.pairwise import cosine_similarity
 from catboost import Pool, CatBoostClassifier, CatBoostRegressor, sum_models
 from .GNN import GNNModelDGL, GATDGL
 from .Base import BaseModel
@@ -10,8 +16,9 @@ from sklearn import preprocessing
 from tqdm import tqdm
 from collections import defaultdict as ddict
 import torch.nn.functional as F
+from multiprocessing import cpu_count
 
-class agg_BGNN(BaseModel):
+class agg_BGNN_dg(BaseModel):
     def __init__(self,
                  task='regression', iter_per_epoch = 10, lr=0.01, hidden_dim=64, dropout=0.,
                  only_gbdt=False, train_non_gbdt=False,
@@ -77,14 +84,12 @@ class agg_BGNN(BaseModel):
     def append_gbdt_model(self, new_gbdt_model, weights, m):
         if self.gbdt_model[m] is None:
             return new_gbdt_model
-        print(1)
         return sum_models([self.gbdt_model[m], new_gbdt_model], weights=weights)
 
     def train_gbdt(self, gbdt_X_train, gbdt_y_train, cat_features, epoch,
                    gbdt_trees_per_epoch, gbdt_alpha, m):
-        # print(gbdt_y_train.shape)
         pool = Pool(gbdt_X_train, gbdt_y_train, cat_features=cat_features)
-        print(gbdt_y_train.shape)
+        # print(gbdt_y_train.shape)
         epoch_gbdt_model = self.fit_gbdt(pool, gbdt_trees_per_epoch, epoch)
         if epoch == 0 and self.task == 'classification':
             self.base_gbdt[m] = epoch_gbdt_model
@@ -275,6 +280,64 @@ class agg_BGNN(BaseModel):
         loss.backward()
         optimizer[m].step()
         return loss
+    
+    def feature_vector(self, X):
+        pred = self.gbdt_model[1].predict(X)
+        leaf_index = self.gbdt_model[2].calc_leaf_indexes(X)
+        return pred, leaf_index
+    
+    # networkx version
+    def construct_graph(self, data):
+        G = nx.Graph()
+        if isinstance(data, np.ndarray):
+            data = pd.DataFrame(data)
+        nodes = list(data.index)
+        G.add_nodes_from(nodes)
+
+        simul = cosine_similarity(data.values, data.values)
+        np.fill_diagonal(simul, 0) # replaced diagonal
+
+        top5 = np.argpartition(simul, -5)[:, -5:]
+        edges = [(nodes[i], nodes[j]) for i in range(len(nodes)) for j in top5[i]]
+        G.add_edges_from(edges)
+
+        graph = nx.relabel_nodes(G, {str(i):i for i in range(len(G))})
+        s = time.time()
+        graph = dgl.from_networkx(graph)
+        # graph = dgl.add_self_loop(graph)
+        graph = graph.to(self.device)
+        print("zzz", time.time() - s)
+
+        return graph
+    
+    # dgl version
+    def construct_graph2(self, data):
+        warnings.filterwarnings('ignore')   # ignore dgl warnings
+        graph = dgl.DGLGraph()
+        if isinstance(data, np.ndarray):
+            data = pd.DataFrame(data)
+        nodes = list(data.index)
+        graph.add_nodes(len(nodes))
+
+        simul = cosine_similarity(data.values, data.values)
+        np.fill_diagonal(simul, 0)
+        top5 = np.argpartition(simul, -5)[:, -5:]
+
+        src_node = []
+        dst_node = []
+        for i in nodes:
+            for j in top5[i]:
+                src_node.append(i)
+                dst_node.append(j)
+        
+        graph.add_edges(src_node, dst_node)
+        graph = dgl.add_self_loop(graph)
+        graph = graph.to(self.device)   # push graph to gpu
+
+        return graph
+
+
+ 
 
     def fit(self, networkx_graph, X, y, train_mask, val_mask, test_mask, cat_features,
             num_epochs, patience, logging_epochs=1, loss_fn=None, metric_name='loss',
@@ -327,10 +390,7 @@ class agg_BGNN(BaseModel):
         node_features_before = [node_features[0].clone() for _ in range(3)]
         # node_features = torch.tensor(item.cpu().detach().numpy() for item in node_features)
         # node_features_before = torch.tensor(item.cpu().detach().numpy() for item in node_features_before)
-        
-        # print(node_features[0].shape)
-        # print(node_features[1].shape)
-        # print(node_features[2].shape)
+
         optimizer = [self.init_optimizer2(node_features[m], optimize_node_features=True, learning_rate=self.learning_rate, m=m) for m in range(3)]
 
         y, = self.pandas_to_torch(y)
@@ -354,6 +414,13 @@ class agg_BGNN(BaseModel):
 
         pbar = tqdm(range(num_epochs))
         for epoch in pbar:
+            # dynamic graph
+            if self.gbdt_model[0] is not None:
+                pred, leaf = self.feature_vector(encoded_X)
+                graphP = self.construct_graph2(pred)
+                graphL = self.construct_graph2(leaf)
+                self.graph = [self.graph1, graphP, graphL]
+
             agg_logits = torch.zeros(node_features[0].shape[0], self.out_dim).cuda()
             for m in range(3):
                 # print("m:", m)
@@ -380,10 +447,6 @@ class agg_BGNN(BaseModel):
                 gbdt_y_train[m] = self.update_gbdt_targets(node_features[m], node_features_before[m], train_mask, m)
                 
                 logits = self.model[m](*model_in).squeeze()
-                # print(m)
-                # print(self.evaluate_model(logits, y, train_mask))
-                # print(self.evaluate_model(logits, y, val_mask))
-                # print(self.evaluate_model(logits, y, test_mask))
                 agg_logits += logits
                 # print(logits[0])
                 # print("agg", agg_logits[0])

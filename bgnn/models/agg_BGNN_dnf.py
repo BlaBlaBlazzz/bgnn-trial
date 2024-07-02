@@ -11,7 +11,7 @@ from tqdm import tqdm
 from collections import defaultdict as ddict
 import torch.nn.functional as F
 
-class agg_BGNN(BaseModel):
+class agg_BGNN_dnf(BaseModel):
     def __init__(self,
                  task='regression', iter_per_epoch = 10, lr=0.01, hidden_dim=64, dropout=0.,
                  only_gbdt=False, train_non_gbdt=False,
@@ -77,14 +77,15 @@ class agg_BGNN(BaseModel):
     def append_gbdt_model(self, new_gbdt_model, weights, m):
         if self.gbdt_model[m] is None:
             return new_gbdt_model
-        print(1)
-        return sum_models([self.gbdt_model[m], new_gbdt_model], weights=weights)
+        try:
+            return sum_models([self.gbdt_model[m], new_gbdt_model], weights=weights)
+        except:
+            return new_gbdt_model
 
     def train_gbdt(self, gbdt_X_train, gbdt_y_train, cat_features, epoch,
                    gbdt_trees_per_epoch, gbdt_alpha, m):
         # print(gbdt_y_train.shape)
         pool = Pool(gbdt_X_train, gbdt_y_train, cat_features=cat_features)
-        print(gbdt_y_train.shape)
         epoch_gbdt_model = self.fit_gbdt(pool, gbdt_trees_per_epoch, epoch)
         if epoch == 0 and self.task == 'classification':
             self.base_gbdt[m] = epoch_gbdt_model
@@ -207,6 +208,10 @@ class agg_BGNN(BaseModel):
             residual = (node_features - node_features_before).detach().cpu().numpy()[train_mask, -self.out_dim:]
             
         return residual
+    
+    def update_gbdt_targets2(self, node_features, node_features_before, train_mask):
+        residual = (node_features - node_features_before).detach().cpu().numpy()[train_mask, :self.iter_per_epoch]
+        return residual
 
     def init_node_features(self, X, m):
         node_features = torch.empty(X.shape[0], self.in_dim[m], requires_grad=True, device=self.device)
@@ -236,6 +241,42 @@ class agg_BGNN(BaseModel):
 
         predictions = torch.from_numpy(predictions).to(self.device)
         node_parameters.data = predictions.float().data
+
+    # leaf_index only
+    def update_node_features_L(self, node_features, X, encoded_X, m):
+        if self.task == 'regression':
+            prediction = np.expand_dims(self.gbdt_model.calc_leaf_indexes(X), axis=1)
+        else:
+            # predictions = self.base_gbdt[m].predict_proba(X)
+
+            # MinMaxScaler
+            min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1,1))
+            if self.leaf_idx_before[m] is None:
+                leaf_idx = self.base_gbdt[m].calc_leaf_indexes(X)
+                # print("leaf_index", leaf_idx[0])
+                leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
+                self.leaf_idx_before[m] = leaf_idx
+            
+            if self.gbdt_model[m] is not None:
+
+                # epoch leaf indexes
+                leaf_idx_cur = self.cur_gbdt.calc_leaf_indexes(X)
+                self.leaf_idx_before[m] = np.append(self.leaf_idx_before[m], leaf_idx_cur, axis=1)
+                # print("leaf index before", self.leaf_idx_before[m][0])
+
+                leaf_idx_reshaped = self.leaf_idx_before[m].reshape(len(X), -1, self.iter_per_epoch).view()         
+                leaf_idx = np.sum(leaf_idx_reshaped, axis=1)
+                # print(leaf_idx[0])
+                leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
+
+        node_features_tem = leaf_idx_normalized.astype("float")
+        node_features_tem = torch.from_numpy(node_features_tem).to(self.device)
+        pad_size = self.node_features_shape[m][1] - list(node_features_tem.shape)[1]
+        paddings = [0, pad_size, 0, 0]
+        node_features_tem = torch.nn.functional.pad(node_features_tem, paddings)
+
+        node_features[m].data = node_features_tem.float().data
+
 
     def evaluate_metrics(self, logits, target_labels, train_mask, val_mask, test_mask,
                            optimizer, metrics):
@@ -304,6 +345,8 @@ class agg_BGNN(BaseModel):
         self.in_dim3 = X.shape[1] + self.out_dim # X + prediction
         self.in_dim = [self.in_dim1, self.in_dim2, self.in_dim3]
 
+        self.node_features_shape = [None, None, None]    # node feature shape of first iteration
+
         # gnn model list consisting of 3 models
         self.init_gnn_model()
 
@@ -324,13 +367,11 @@ class agg_BGNN(BaseModel):
 
         # node feature list
         node_features = [self.init_node_features(encoded_X, m) for m in range(3)]
+        # print("initial node_feature:", node_features[0].shape)
         node_features_before = [node_features[0].clone() for _ in range(3)]
         # node_features = torch.tensor(item.cpu().detach().numpy() for item in node_features)
         # node_features_before = torch.tensor(item.cpu().detach().numpy() for item in node_features_before)
         
-        # print(node_features[0].shape)
-        # print(node_features[1].shape)
-        # print(node_features[2].shape)
         optimizer = [self.init_optimizer2(node_features[m], optimize_node_features=True, learning_rate=self.learning_rate, m=m) for m in range(3)]
 
         y, = self.pandas_to_torch(y)
@@ -350,10 +391,15 @@ class agg_BGNN(BaseModel):
         self.graph3 = graph3
         self.graph = [self.graph1, self.graph2, self.graph3]
 
-        self.update_node_features = [self.update_node_features1, self.update_node_features2, self.update_node_features3]
-
+        
         pbar = tqdm(range(num_epochs))
         for epoch in pbar:
+            if epoch == 0:
+                self.update_node_features = [self.update_node_features1, self.update_node_features2, self.update_node_features3]
+            else:
+                # dynamic leaf_index
+                self.update_node_features = [self.update_node_features_L, self.update_node_features_L, self.update_node_features_L]
+
             agg_logits = torch.zeros(node_features[0].shape[0], self.out_dim).cuda()
             for m in range(3):
                 # print("m:", m)
@@ -365,9 +411,9 @@ class agg_BGNN(BaseModel):
                 
                 # return updated node features
                 self.update_node_features[m](node_features, X, encoded_X, m)
-                # print("node_features", node_features[0].shape)
-                # print("node_features", node_features[1].shape)
-                # print("node_features", node_features[2].shape)
+                self.node_features_shape[m] = list(node_features[m].shape)
+                # print("node_features", node_features[1])
+                # print("node_features", node_features[2])
                 node_features_before[m] = node_features[m].clone()
                 model_in=(self.graph[m], node_features[m])
 
@@ -377,8 +423,11 @@ class agg_BGNN(BaseModel):
 
                 # evaluation mode 
                 self.model[m].eval()
-                gbdt_y_train[m] = self.update_gbdt_targets(node_features[m], node_features_before[m], train_mask, m)
-                
+                if epoch == 0:
+                    gbdt_y_train[m] = self.update_gbdt_targets(node_features[m], node_features_before[m], train_mask, m)
+                else:
+                    gbdt_y_train[m] = self.update_gbdt_targets2(node_features[m], node_features_before[m], train_mask) 
+                               
                 logits = self.model[m](*model_in).squeeze()
                 # print(m)
                 # print(self.evaluate_model(logits, y, train_mask))
