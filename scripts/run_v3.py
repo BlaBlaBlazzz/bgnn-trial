@@ -8,6 +8,8 @@ from bgnn.models.MLP import MLP
 from bgnn.models.GNN import GNN
 from bgnn.models.BGNN_v2 import BGNN_v2
 from bgnn.models.agg_BGNN import agg_BGNN
+from bgnn.models.agg_BGNN_dnf import agg_BGNN_dnf
+from bgnn.models.agg_BGNN_dg import agg_BGNN_dg
 from bgnn.scripts.utils import NpEncoder
 from bgnn.models.Base import BaseModel
 
@@ -137,7 +139,7 @@ class RunModel:
 
                 inputs = {'X': self.X, 'y': self.y, 'train_mask': self.train_mask,
                           'val_mask': self.val_mask, 'test_mask': self.test_mask, 'cat_features': self.cat_features}
-                if model_name in ['gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'aggBGNN']:
+                if model_name in ['gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg']:
                     inputs['networkx_graph'] = self.networkx_graph
                     inputs['networkx_graph_pred'] = self.networkx_graph_pred
                     inputs['networkx_graph_leaf'] = self.networkx_graph_leaf
@@ -235,6 +237,10 @@ class RunModel:
             return BGNN_v2(self.task, **ps)
         elif model_name == 'aggBGNN':
             return agg_BGNN(self.task, **ps)
+        elif model_name == 'aggBGNN_dnf':
+            return agg_BGNN_dnf(self.task, **ps)
+        elif model_name == 'aggBGNN_dg':
+            return agg_BGNN_dg(self.task, **ps)
 
     def create_save_folder(self, seed):
         self.seed_folder = f'{self.save_folder}/{seed}'
@@ -271,7 +277,8 @@ class RunModel:
         return 'unknown'
 
     def aggregate_results(self):
-        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG','emb-GBDT', 'aggBGNN']
+        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn', 'resgnnL', 
+                 'resgnnSVM', 'resgnnXG','emb-GBDT', 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -341,6 +348,8 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
                     self.run_one_model(config_fn=config_dir / 'agg-bgnn.yaml', model_name="aggBGNN")
+                    self.run_one_model(config_fn=config_dir / 'agg-bgnn-dnf.yaml', model_name="aggBGNN_dnf")
+                    self.run_one_model(config_fn=config_dir / 'agg-bgnn-dg.yaml', model_name="aggBGNN_dg")
                     break
                 elif arg == 'catboost':
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
@@ -366,6 +375,10 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
                 elif arg == 'aggBGNN':
                     self.run_one_model(config_fn=config_dir / 'agg-bgnn.yaml', model_name="aggBGNN")
+                elif arg == 'aggBGNN_dnf':
+                    self.run_one_model(config_fn=config_dir / 'agg-bgnn-dnf.yaml', model_name="aggBGNN_dnf")
+                elif arg == 'aggBGNN_dg':
+                    self.run_one_model(config_fn=config_dir / 'agg-bgnn-dg.yaml', model_name="aggBGNN_dg")
 
             self.save_results(seed)
             if ix+1 >= max_seeds:
