@@ -8,6 +8,7 @@ from bgnn.models.MLP import MLP
 from bgnn.models.GNN import GNN
 from bgnn.models.BGNN import BGNN
 from bgnn.models.BGNN_v2 import BGNN_v2
+from bgnn.models.ExcelFormer import ExcelFormer
 from bgnn.scripts.utils import NpEncoder
 from bgnn.models.Base import BaseModel
 
@@ -117,6 +118,7 @@ class RunModel:
 
                 inputs = {'X': self.X, 'y': self.y, 'train_mask': self.train_mask,
                           'val_mask': self.val_mask, 'test_mask': self.test_mask, 'cat_features': self.cat_features}
+                # graph
                 if model_name in ['gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'bgnn_v2']:
                     inputs['networkx_graph'] = self.networkx_graph
 
@@ -229,6 +231,11 @@ class RunModel:
             return BGNN(self.task, **ps)
         elif model_name == 'bgnn_v2':
             return BGNN_v2(self.task, **ps)
+        elif model_name == 'ExcelFormer':
+            return ExcelFormer(self.task, **ps)
+        else:
+            module = globals()[model_name]
+            return module(self.task, **ps)
 
     def create_save_folder(self, seed):
         self.seed_folder = f'{self.save_folder}/{seed}'
@@ -269,7 +276,8 @@ class RunModel:
         return 'unknown'
 
     def aggregate_results(self):
-        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'bgnn_v2', 'resgnnL', 'resgnnSVM', 'resgnnXG','emb-GBDT']
+        algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'bgnn_v2', 'resgnnL', 'resgnnSVM', 'resgnnXG',
+                 'emb-GBDT', 'ExcelFormer', 'Trompt', 'FTTransformer', 'TabNet', 'TabTransformer']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -370,6 +378,14 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'bgnn_v2.yaml', model_name="bgnn_v2")
                 elif arg == 'emb-GBDT':
                     self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
+                # elif arg == 'ExcelFormer':
+                #     self.run_one_model(config_fn=config_dir / 'ExcelFormer.yaml', model_name='ExcelFormer')
+                else:
+                    try:
+                        config_fn = config_dir / f'{arg}.yaml'
+                        self.run_one_model(config_fn=config_fn, model_name=arg)
+                    except:
+                        raise ValueError("Model not found.")
 
             self.save_results(seed)
             if ix+1 >= max_seeds:
