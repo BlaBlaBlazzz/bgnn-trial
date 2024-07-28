@@ -149,9 +149,9 @@ class BGNN(BaseModel):
         # print("test_mask:", len(test_mask))
         # initialize for early stopping and metrics
         if metric_name in ['r2', 'accuracy']:
-            best_metric = [np.float('-inf')] * 3  # for train/val/test
+            best_metric = [np.float64('-inf')] * 3  # for train/val/test
         else:
-            best_metric = [np.float('inf')] * 3  # for train/val/test
+            best_metric = [np.float64('inf')] * 3  # for train/val/test
         best_val_epoch = 0
         epochs_since_last_best_metric = 0
         metrics = ddict(list)
@@ -185,7 +185,7 @@ class BGNN(BaseModel):
                 encoded_X = self.replace_na(encoded_X, train_mask)
 
         node_features = self.init_node_features(encoded_X)
-        # print(node_features)
+        print(node_features.shape)
         optimizer = self.init_optimizer(node_features, optimize_node_features=True, learning_rate=self.learning_rate)
 
         y, = self.pandas_to_torch(y)
@@ -196,6 +196,7 @@ class BGNN(BaseModel):
             graph = self.networkx_to_torch2(networkx_graph)
 
         self.graph = graph
+        print(self.graph)
 
         pbar = tqdm(range(num_epochs))
         for epoch in pbar:

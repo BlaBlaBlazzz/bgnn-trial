@@ -37,6 +37,7 @@ class BaseModel(torch.nn.Module):
 
     def init_optimizer(self, node_features, optimize_node_features, learning_rate):
 
+        # print(list(self.model.parameters()))
         params = [self.model.parameters()]
         if optimize_node_features:
             params.append([node_features])

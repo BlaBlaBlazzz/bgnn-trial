@@ -1,0 +1,22 @@
+hp:
+  lr:
+  - 0.001
+  - 0.0001
+  - 0.00001
+  num_heads:
+  - 2
+  - 4
+  - 8
+  num_layers:
+  - 3
+  - 6
+  - 12
+  attn_dropout:
+  - 0.1
+  - 0.3
+  ffn_dropout:
+  - 0.1
+  - 0.3
+
+num_epochs: 100
+patience: 20

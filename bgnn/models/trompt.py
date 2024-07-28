@@ -6,8 +6,7 @@ import torch_frame
 import torch.nn.functional as F
 from torch_frame.data import Dataset
 from torch_frame.data.loader import DataLoader
-from torch_frame.nn import ExcelFormer as Excel4ormer
-from torch_frame.transforms import CatToNumTransform, MutualInformationSort
+from torch_frame.nn import Trompt
 from torch.optim.lr_scheduler import ExponentialLR
 from collections import defaultdict as ddict
 
@@ -17,22 +16,18 @@ from tqdm import tqdm
 
 
 
-class ExcelFormer(BaseModel):
+class trompt(BaseModel):
     def __init__(self, task='classification', 
-                 in_channels=256, out_channels=1, num_heads=4, num_layers=5, lr=0.001,
-                 gamma=0.95, beta=0.5, mixup=None, residual_dropout=0., diam_dropout=0.):
-        super(ExcelFormer, self).__init__()
+                 channels=128, out_channels=1, num_layers=6, lr=0.001, gamma=0.95,
+                 num_prompts=128):
+        super(trompt, self).__init__()
         self.task = task
-        self.in_channels = in_channels
+        self.channels = channels
         self.out_channels = out_channels
-        self.num_heads = num_heads
         self.num_layers = num_layers
         self.learning_rate = lr
         self.gamma = gamma
-        self.beta = beta
-        self.mixup = mixup
-        self.residual_dropout = residual_dropout
-        self.diam_dropout = diam_dropout
+        self.num_prompts = num_prompts
 
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     
@@ -59,7 +54,7 @@ class ExcelFormer(BaseModel):
         # split data
         train_data, val_data, test_data = self.train_val_test_split(data, train_mask, val_mask, test_mask)
 
-        return train_data, val_data, test_data
+        return data, train_data, val_data, test_data
     
     # batch size settings for datasets in (Grinsztajn et al., 2022)
     def get_batch_size(self, n_features):
@@ -85,19 +80,22 @@ class ExcelFormer(BaseModel):
 
         for frame in train_loader:
             frame = frame.to(self.device)
-            pred_mixed, y_mixed = self.model(frame, mixup_encoded=True)
+            out = self.model.forward_stacked(frame)
+            num_layers = out.size(1)
+            pred = out.view(-1, self.dataset.num_classes)
+            y = frame.y.repeat_interleave(num_layers)
 
             if self.task == "regression":
-                loss = torch.sqrt(F.mse_loss(pred_mixed.view(-1), y_mixed.view(-1)))
+                loss = torch.sqrt(F.mse_loss(pred, y))
             elif self.task == "classification":
-                loss = F.cross_entropy(pred_mixed, y_mixed)
+                loss = F.cross_entropy(pred, y)
             else:
                 raise NotImplemented("Unknown task. Supported tasks: classification, regression.")
             
             optimizer.zero_grad()
             loss.backward()
-            loss_sum += float(loss) * len(y_mixed)
-            total_counts += len(y_mixed)
+            loss_sum += float(loss) * len(frame.y)
+            total_counts += len(frame.y)
             optimizer.step()
         
         return loss_sum / total_counts
@@ -169,23 +167,10 @@ class ExcelFormer(BaseModel):
             X = X = self.replace_na(X, train_mask)
         
         # load data
-        train_data, val_data, test_data = self.data_loader(X, y, train_mask, val_mask, test_mask)
+        self.dataset, train_data, val_data, test_data = self.data_loader(X, y, train_mask, val_mask, test_mask)
         train_tensor_frame = train_data.tensor_frame
         val_tensor_frame = val_data.tensor_frame
         test_tensor_frame = test_data.tensor_frame
-
-        categorical_transform = CatToNumTransform()
-        categorical_transform.fit(train_tensor_frame, col_stats=train_data.col_stats)
-        train_tensor_frame = categorical_transform(train_tensor_frame)
-        val_tensor_frame = categorical_transform(val_tensor_frame)
-        test_tensor_frame = categorical_transform(test_tensor_frame)
-        col_stats = categorical_transform.transformed_stats
-        
-        mutual_info_sort = MutualInformationSort(task_type=train_data.task_type)
-        mutual_info_sort.fit(train_tensor_frame, col_stats)
-        train_tensor_frame = mutual_info_sort(train_tensor_frame)
-        val_tensor_frame = mutual_info_sort(val_tensor_frame)
-        test_tensor_frame = mutual_info_sort(test_tensor_frame)
 
         # batch size
         batch_size, val_batch_size = self.get_batch_size(len(train_data.feat_cols))
@@ -195,18 +180,12 @@ class ExcelFormer(BaseModel):
         val_loader = DataLoader(val_tensor_frame, batch_size=val_batch_size, shuffle=False)
         test_loader = DataLoader(test_tensor_frame, batch_size=val_batch_size, shuffle=False)
        
-        # initialize ExcelFormer
-        num_classes = max(y["class"].values.tolist()) + 1
-        self.out_channels = num_classes if self.task == 'classification' else 1
-        self.model = Excel4ormer(in_channels=self.in_channels,
-                            out_channels=self.out_channels,
-                            num_cols=train_tensor_frame.num_cols,
+        # initialize Trompt
+        self.model = Trompt(channels=self.channels,
+                            out_channels=self.dataset.num_classes,
                             num_layers=self.num_layers,
-                            num_heads=self.num_heads,
-                            mixup=self.mixup,
-                            residual_dropout=self.residual_dropout,
-                            diam_dropout=self.diam_dropout, 
-                            col_stats=mutual_info_sort.transformed_stats,
+                            num_prompts=self.num_prompts,
+                            col_stats=self.dataset.col_stats,
                             col_names_dict=train_tensor_frame.col_names_dict).to(self.device)
         
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)

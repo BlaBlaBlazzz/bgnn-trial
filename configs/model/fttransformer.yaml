@@ -1,0 +1,20 @@
+hp:
+  lr:
+  - 0.001
+  - 0.0001
+  - 0.00001
+  num_layers:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  numerical_encoder_type:
+  - linear
+  - linearbucket
+  - linearperiodic
+
+
+num_epochs: 100
+patience: 20

@@ -9,6 +9,10 @@ from bgnn.models.GNN import GNN
 from bgnn.models.BGNN import BGNN
 from bgnn.models.BGNN_v2 import BGNN_v2
 from bgnn.models.ExcelFormer import ExcelFormer
+from bgnn.models.trompt import trompt
+from bgnn.models.tabnet import tabnet
+from bgnn.models.tabtransformer import tabtransformer
+from bgnn.models.fttransformer import fttransformer
 from bgnn.scripts.utils import NpEncoder
 from bgnn.models.Base import BaseModel
 
@@ -277,7 +281,7 @@ class RunModel:
 
     def aggregate_results(self):
         algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'bgnn_v2', 'resgnnL', 'resgnnSVM', 'resgnnXG',
-                 'emb-GBDT', 'ExcelFormer', 'Trompt', 'FTTransformer', 'TabNet', 'TabTransformer']
+                 'emb-GBDT', 'ExcelFormer', 'trompt', 'fttransformer', 'tabnet', 'tabtransformer']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -378,14 +382,18 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'bgnn_v2.yaml', model_name="bgnn_v2")
                 elif arg == 'emb-GBDT':
                     self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
-                # elif arg == 'ExcelFormer':
-                #     self.run_one_model(config_fn=config_dir / 'ExcelFormer.yaml', model_name='ExcelFormer')
+                elif arg == 'transformers':
+                    self.run_one_model(config_fn=config_dir / 'ExcelFormer.yaml', model_name='ExcelFormer')
+                    self.run_one_model(config_fn=config_dir / 'trompt.yaml', model_name='trompt')
+                    self.run_one_model(config_fn=config_dir / 'tabnet.yaml', model_name='tabnet')
+                    self.run_one_model(config_fn=config_dir / 'tabtransformer.yaml', model_name='tabtransformer')
+                    self.run_one_model(config_fn=config_dir / 'fttransformer.yaml', model_name='fttransformer')
                 else:
-                    try:
-                        config_fn = config_dir / f'{arg}.yaml'
-                        self.run_one_model(config_fn=config_fn, model_name=arg)
-                    except:
-                        raise ValueError("Model not found.")
+                    # try:
+                    config_fn = config_dir / f'{arg}.yaml'
+                    self.run_one_model(config_fn=config_fn, model_name=arg)
+                    # except:
+                    #     raise ValueError("Model not found.")
 
             self.save_results(seed)
             if ix+1 >= max_seeds:
