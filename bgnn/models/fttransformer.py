@@ -192,7 +192,7 @@ class fttransformer(BaseModel):
        
         # initialize ExcelFormer
         num_classes = max(y["class"].values.tolist()) + 1
-        self.out_channels = num_classes if self.task == 'classification' else 1
+        self.out_channels = int(num_classes) if self.task == 'classification' else 1
         self.model = FTTransformer(channels=self.channels,
                                    out_channels=self.out_channels, 
                                    num_layers=self.num_layers,

@@ -311,7 +311,7 @@ class GBDTXGBoost:
     def fit(self, X, y,
             train_masks, val_masks, test_masks,
             cat_features=None, num_epochs=300, patience=200,
-            loss_fn="", metric_name='loss', gnn_prediction=None):
+            loss_fn="", metric_name='loss', gnn_prediction=None):      
         
         # spliting dataset
         X_train, y_train, X_val, y_val, X_test, y_test = \
@@ -321,9 +321,9 @@ class GBDTXGBoost:
         evals_result = {}
 
         start = time.time()
-        train_data = xgb.DMatrix(X_train, label=y_train)
-        val_data = xgb.DMatrix(X_val, label=y_val)
-        test_data = xgb.DMatrix(X_test, label=y_test)
+        train_data = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
+        val_data = xgb.DMatrix(X_val, label=y_val, enable_categorical=True)
+        test_data = xgb.DMatrix(X_test, label=y_test, enable_categorical=True)
 
         eval_set = [(X_val, y_val), (X_test, y_test)]
         eval_set = [(train_data, 'train'), (val_data, 'val'), (test_data, 'test')]

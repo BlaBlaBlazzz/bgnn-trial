@@ -317,16 +317,16 @@ class agg_BGNN_dnf(BaseModel):
         optimizer[m].step()
         return loss
 
-    def fit(self, networkx_graph, X, y, train_mask, val_mask, test_mask, cat_features,
+    def fit(self, graph, X, y, train_mask, val_mask, test_mask, cat_features,
             num_epochs, patience, logging_epochs=1, loss_fn=None, metric_name='loss',
-            normalize_features=True, replace_na=True, networkx_graph_pred=None, networkx_graph_leaf=None
+            normalize_features=True, replace_na=True, graph_pred=None, graph_leaf=None
             ):
 
         # initialize for early stopping and metrics
         if metric_name in ['r2', 'accuracy']:
-            best_metric = [np.float('-inf')] * 3  # for train/val/test
+            best_metric = [np.float64('-inf')] * 3  # for train/val/test
         else:
-            best_metric = [np.float('inf')] * 3  # for train/val/test
+            best_metric = [np.float64('inf')] * 3  # for train/val/test
         best_val_epoch = 0
         epochs_since_last_best_metric = 0
         metrics = ddict(list)
@@ -377,18 +377,14 @@ class agg_BGNN_dnf(BaseModel):
         y, = self.pandas_to_torch(y)
         self.y = y
         # Load graph
-        if self.lang == 'dgl':
-            graph1 = self.networkx_to_torch(networkx_graph)
-            graph2 = self.networkx_to_torch(networkx_graph_pred)
-            graph3 = self.networkx_to_torch(networkx_graph_leaf)
-        elif self.lang == 'pyg':
-            graph1 = self.networkx_to_torch2(networkx_graph)
-            graph2 = self.networkx_to_torch2(networkx_graph_pred)
-            graph3 = self.networkx_to_torch2(networkx_graph_leaf)
+        # if self.lang == 'dgl':
+        #     graph1 = self.networkx_to_torch(networkx_graph)
+        #     graph2 = self.networkx_to_torch(networkx_graph_pred)
+        #     graph3 = self.networkx_to_torch(networkx_graph_leaf)
 
-        self.graph1 = graph1
-        self.graph2 = graph2
-        self.graph3 = graph3
+        self.graph1 = graph.to(self.device)
+        self.graph2 = graph_pred.to(self.device)
+        self.graph3 = graph_leaf.to(self.device)
         self.graph = [self.graph1, self.graph2, self.graph3]
 
         

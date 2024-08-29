@@ -12,6 +12,7 @@ from .Base import BaseModel
 from torch.autograd import Variable
 from collections import defaultdict as ddict
 from .MLP import MLPRegressor
+import networkx as nx
 
 
 class ElementWiseLinear(nn.Module):
@@ -229,15 +230,15 @@ class GNN(BaseModel):
         node_features = Variable(X, requires_grad=optimize_node_features)
         return node_features
 
-    def fit(self, networkx_graph, X, y, train_mask, val_mask, test_mask, num_epochs,
+    def fit(self, X, y, train_mask, val_mask, test_mask, num_epochs, networkx_graph=None,
             cat_features=None, patience=200, logging_epochs=1, optimize_node_features=False,
             loss_fn=None, metric_name='loss', normalize_features=True, replace_na=True, node_features=None):
 
         # initialize for early stopping and metrics
         if metric_name in ['r2', 'accuracy']:
-            best_metric = [np.float('-inf')] * 3  # for train/val/test
+            best_metric = [np.float64('-inf')] * 3  # for train/val/test
         else:
-            best_metric = [np.float('inf')] * 3  # for train/val/test
+            best_metric = [np.float64('inf')] * 3  # for train/val/test
         best_val_epoch = 0
         epochs_since_last_best_metric = 0
         metrics = ddict(list) # metric_name -> (train/val/test)
@@ -268,17 +269,18 @@ class GNN(BaseModel):
             X = self.replace_na(X, train_mask)
         if normalize_features:
             X = self.normalize_features(X, train_mask, val_mask, test_mask)
-        
 
-        
+        if isinstance(networkx_graph, nx.Graph):
+            if self.lang == 'dgl':
+                graph = self.networkx_to_torch(networkx_graph)
+            elif self.lang == 'pyg':
+                graph = self.networkx_to_torch2(networkx_graph)
+        else:
+            graph = networkx_graph
+
         X, y = self.pandas_to_torch(X, y)
         if len(X.shape) == 1:
             X = X.unsqueeze(1)
-
-        if self.lang == 'dgl':
-            graph = self.networkx_to_torch(networkx_graph)
-        elif self.lang == 'pyg':
-            graph = self.networkx_to_torch2(networkx_graph)
         self.init_model()
 
         if node_features is None:

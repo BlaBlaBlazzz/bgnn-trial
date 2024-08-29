@@ -2,6 +2,7 @@ import itertools
 import time
 import numpy as np
 import torch
+import networkx as nx
 
 from catboost import Pool, CatBoostClassifier, CatBoostRegressor, sum_models
 from .GNN import GNNModelDGL, GATDGL
@@ -137,16 +138,12 @@ class BGNN(BaseModel):
 
         predictions = torch.from_numpy(predictions).to(self.device)
         node_parameters.data = predictions.float().data
+    
 
-    def fit(self, networkx_graph, X, y, train_mask, val_mask, test_mask, cat_features,
-            num_epochs, patience, logging_epochs=1, loss_fn=None, metric_name='loss',
+    def fit(self, X, y, train_mask, val_mask, test_mask, cat_features, num_epochs,  
+            patience, networkx_graph=None, logging_epochs=1, loss_fn=None, metric_name='loss',
             normalize_features=True, replace_na=True,
             ):
-
-        
-        # print("train_mask:", len(train_mask))
-        # print("val_mask:", len(val_mask))
-        # print("test_mask:", len(test_mask))
         # initialize for early stopping and metrics
         if metric_name in ['r2', 'accuracy']:
             best_metric = [np.float64('-inf')] * 3  # for train/val/test
@@ -185,18 +182,22 @@ class BGNN(BaseModel):
                 encoded_X = self.replace_na(encoded_X, train_mask)
 
         node_features = self.init_node_features(encoded_X)
-        print(node_features.shape)
+        # print(node_features.shape)
         optimizer = self.init_optimizer(node_features, optimize_node_features=True, learning_rate=self.learning_rate)
 
         y, = self.pandas_to_torch(y)
         self.y = y
-        if self.lang == 'dgl':
-            graph = self.networkx_to_torch(networkx_graph)
-        elif self.lang == 'pyg':
-            graph = self.networkx_to_torch2(networkx_graph)
+
+        if isinstance(networkx_graph, nx.Graph):
+            if self.lang == 'dgl':
+                graph = self.networkx_to_torch(networkx_graph)
+            elif self.lang == 'pyg':
+                graph = self.networkx_to_torch2(networkx_graph)
+        else:
+            graph = networkx_graph
 
         self.graph = graph
-        print(self.graph)
+        # print(self.graph)
 
         pbar = tqdm(range(num_epochs))
         for epoch in pbar:

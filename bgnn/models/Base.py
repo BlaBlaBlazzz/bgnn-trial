@@ -1,3 +1,5 @@
+import warnings
+import dgl
 import itertools
 import torch
 from sklearn import preprocessing
@@ -5,6 +7,7 @@ import pandas as pd
 import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import r2_score, accuracy_score
+from sklearn.metrics.pairwise import cosine_similarity
 
 class BaseModel(torch.nn.Module):
     def __init__(self):
@@ -74,6 +77,32 @@ class BaseModel(torch.nn.Module):
         A[np.ix_(val_mask + test_mask, cat_features)] = enc.transform(A[np.ix_(val_mask + test_mask, cat_features)])
         A = A.astype(float)
         return pd.DataFrame(A, columns=X.columns)
+    
+    def construct_graph(self, nf):
+        warnings.filterwarnings('ignore')   # ignore dgl warnings
+        graph = dgl.DGLGraph()
+        if isinstance(nf, np.ndarray):
+            nf = pd.DataFrame(nf)
+        nodes = list(nf.index)
+        graph.add_nodes(len(nodes))
+
+        simul = cosine_similarity(nf.values, nf.values)
+        np.fill_diagonal(simul, 0)
+        top5 = np.argpartition(simul, -5)[:, -5:]
+
+        src_node = []
+        dst_node = []
+        for i in nodes:
+            for j in top5[i]:
+                src_node.append(i)
+                dst_node.append(j)
+        
+        graph.add_edges(src_node, dst_node)
+        graph = dgl.remove_self_loop(graph)
+        graph = dgl.add_self_loop(graph)
+        graph = graph.to(self.device)   # push graph to gpu
+
+        return graph
 
     def train_model(self, model_in, target_labels, train_mask, optimizer):
         y = target_labels[train_mask]

@@ -2,6 +2,7 @@ import itertools
 import time
 import numpy as np
 import torch
+import networkx as nx
 
 from catboost import Pool, CatBoostClassifier, CatBoostRegressor, sum_models
 from .GNN import GNNModelDGL, GATDGL
@@ -179,16 +180,16 @@ class BGNN_v2(BaseModel):
         predictions = torch.from_numpy(predictions).to(self.device)
         node_parameters.data = predictions.float().data
 
-    def fit(self, networkx_graph, X, y, train_mask, val_mask, test_mask, cat_features,
-            num_epochs, patience, logging_epochs=1, loss_fn=None, metric_name='loss',
+    def fit(self, X, y, train_mask, val_mask, test_mask, cat_features, num_epochs,
+            patience, networkx_graph=None, logging_epochs=1, loss_fn=None, metric_name='loss',
             normalize_features=True, replace_na=True,
             ):
 
         # initialize for early stopping and metrics
         if metric_name in ['r2', 'accuracy']:
-            best_metric = [np.float('-inf')] * 3  # for train/val/test
+            best_metric = [np.float64('-inf')] * 3  # for train/val/test
         else:
-            best_metric = [np.float('inf')] * 3  # for train/val/test
+            best_metric = [np.float64('inf')] * 3  # for train/val/test
         best_val_epoch = 0
         epochs_since_last_best_metric = 0
         metrics = ddict(list)
@@ -227,10 +228,14 @@ class BGNN_v2(BaseModel):
 
         y, = self.pandas_to_torch(y)
         self.y = y
-        if self.lang == 'dgl':
-            graph = self.networkx_to_torch(networkx_graph)
-        elif self.lang == 'pyg':
-            graph = self.networkx_to_torch2(networkx_graph)
+
+        if isinstance(networkx_graph, nx.Graph):
+            if self.lang == 'dgl':
+                graph = self.networkx_to_torch(networkx_graph)
+            elif self.lang == 'pyg':
+                graph = self.networkx_to_torch2(networkx_graph)
+        else:
+            graph = networkx_graph
 
         self.graph = graph
 

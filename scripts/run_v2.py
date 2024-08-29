@@ -33,15 +33,17 @@ from omegaconf import OmegaConf
 from sklearn.model_selection import ParameterGrid
 import xgboost as xgb
 
-
 class RunModel:
     def read_input(self, input_folder):
         self.X = pd.read_csv(f'{input_folder}/X.csv')
         self.y = pd.read_csv(f'{input_folder}/y.csv')
 
-        networkx_graph = nx.read_graphml(f'{input_folder}/graph.graphml')
-        networkx_graph = nx.relabel_nodes(networkx_graph, {str(i): i for i in range(len(networkx_graph))})
-        self.networkx_graph = networkx_graph
+        # if os.path.exists(f'{input_folder}/graph.graphml'):
+        #     networkx_graph = nx.read_graphml(f'{input_folder}/graph.graphml')
+        #     networkx_graph = nx.relabel_nodes(networkx_graph, {str(i): i for i in range(len(networkx_graph))})
+        #     self.networkx_graph = networkx_graph
+        # else:
+        #     self.networkx_graph = None
 
         categorical_columns = []
         if os.path.exists(f'{input_folder}/cat_features.txt'):
@@ -124,7 +126,8 @@ class RunModel:
                           'val_mask': self.val_mask, 'test_mask': self.test_mask, 'cat_features': self.cat_features}
                 # graph
                 if model_name in ['gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'bgnn_v2']:
-                    inputs['networkx_graph'] = self.networkx_graph
+                    if self.networkx_graph:
+                        inputs['networkx_graph'] = self.networkx_graph
 
                 metrics = model.fit(num_epochs=self.config.num_epochs, patience=self.config.patience,
                            loss_fn=f"{self.seed_folder}/{exp_name}.txt",
@@ -163,7 +166,6 @@ class RunModel:
                           metric_name='loss' if self.task == 'regression' else 'accuracy',
                           gnn_embedding = node_embedding)
         return metrics
-
         
     
     def define_model(self, model_name, ps):
@@ -177,15 +179,15 @@ class RunModel:
             return GNN(self.task, **ps)
         elif model_name == 'emb-GBDT':
             model = GNN(self.task)
-            x = model.pandas_to_torch(self.X)[0]
+            x = model.pandas_to_torch(self.X.astype("float"))[0]
             node_features = model.init_node_features(x, False)
-            graph = model.networkx_to_torch(self.networkx_graph)
+            # graph = model.networkx_to_torch(self.networkx_graph)
             # node embedding
-            model.fit(self.networkx_graph, self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
-                      cat_features=self.cat_features, 
+            model.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
+                      cat_features=self.cat_features, networkx_graph=self.networkx_graph, 
                       num_epochs=1000, patience=100,
                       metric_name='loss' if self.task == 'regression' else 'accuracy')
-            node_embedding = model.model(graph, node_features).detach().cpu().numpy()
+            node_embedding = model.model(self.networkx_graph, node_features).detach().cpu().numpy()
             # print(node_embedding)
             return GBDTCatBoost(self.task, **ps, gnn_embedding=node_embedding)
         elif model_name == 'resgnn':
@@ -215,18 +217,22 @@ class RunModel:
                      cat_features = self.cat_features,
                      num_epochs = 300, patience = 100,
                      loss_fn=None, metric_name='accuracy')
+            print(self.X)
             predictions = gbdt.model.predict(self.X)
             predictions = [np.argmax(line) for line in predictions]
             predictions = np.reshape(predictions, (len(predictions), 1))
             # print("prediction:", predictions.shape)
             return GNN(task=self.task, gbdt_predictions=predictions, **ps)
         elif model_name == 'resgnnXG':
+            if self.cat_features is not None:
+                for col in list(self.X.columns[self.cat_features]):
+                    self.X[col] = self.X[col].astype('category')
             gbdt = GBDTXGBoost(self.task)
             gbdt.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
                      cat_features = self.cat_features,
                      num_epochs = 300, patience = 100,
                      loss_fn=None, metric_name='accuracy')
-            dX = xgb.DMatrix(self.X)
+            dX = xgb.DMatrix(self.X, enable_categorical=True)
             predictions = gbdt.model.predict(dX)
             predictions = np.reshape(predictions, (len(predictions), 1))
             return GNN(task=self.task, gbdt_predictions=predictions, **ps)
@@ -313,6 +319,19 @@ class RunModel:
             aggregated[model] = (np.mean(scores), np.std(scores),
                                  np.mean(model_best_time[model]), np.std(model_best_time[model]))
         return aggregated
+    
+    def get_graph(self, input_folder):
+        if os.path.exists(f'{input_folder}/graph.graphml'):
+            networkx_graph = nx.read_graphml(f'{input_folder}/graph.graphml')
+            networkx_graph = nx.relabel_nodes(networkx_graph, {str(i): i for i in range(len(networkx_graph))})
+            self.networkx_graph = networkx_graph
+        elif os.path.exists(f'{input_folder}/cat_features.txt'):
+            encoded_X = BaseModel().encode_cat_features(self.X, self.y, self.cat_features, self.train_mask, 
+                                                        self.val_mask, self.test_mask)
+            encoded_X = BaseModel().normalize_features(encoded_X, self.train_mask, self.val_mask, self.test_mask)
+            self.networkx_graph = BaseModel().construct_graph(encoded_X)
+        else:
+            self.networkx_graph = BaseModel().construct_graph(self.X)
 
     def run(self, dataset: str, *args,
             save_folder: str = None,
@@ -327,12 +346,13 @@ class RunModel:
         self.max_seeds = max_seeds
         print(dataset, args, task, repeat_exp, max_seeds, dataset_dir, config_dir)
 
-        dataset_dir = Path(dataset_dir) if dataset_dir else Path(__file__).parent.parent / 'datasets'
+        dataset_dir = Path(dataset_dir) if dataset_dir else Path(__file__).parent.parent / 'datasets' / 'huggingFace_sd' / dataset
         config_dir = Path(config_dir) if config_dir else Path(__file__).parent.parent / 'configs' / 'model'
         print(dataset_dir, config_dir)
 
         self.task = task
-        self.save_folder = save_folder
+        # self.save_folder = save_folder
+        self.save_folder = Path('./results/huggingFace_sd') / dataset / dataset / save_folder
         self.get_input(dataset_dir, dataset)
 
         self.seed_results = dict()
@@ -344,6 +364,8 @@ class RunModel:
             self.create_save_folder(seed)
             self.split_masks(seed)
 
+            self.get_graph(dataset_dir/dataset)
+
             self.store_results = dict()
             for arg in args:
                 if arg == 'all':
@@ -353,10 +375,15 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'bgnn_v2.yaml', model_name="bgnn_v2")
                     self.run_one_model(config_fn=config_dir / 'resgnn.yaml', model_name="resgnn")
                     self.run_one_model(config_fn=config_dir / 'resgnn_LI.yaml', model_name="resgnn_LI")
-                    self.run_one_model(config_fn=config_dir / 'resgnnL.yaml', model_name="resgnnL")
+                    # self.run_one_model(config_fn=config_dir / 'resgnnL.yaml', model_name="resgnnL")
                     self.run_one_model(config_fn=config_dir / 'resgnnXG.yaml', model_name="resgnnXG")
                     self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
+                    # self.run_one_model(config_fn=config_dir / 'ExcelFormer.yaml', model_name='ExcelFormer')
+                    # self.run_one_model(config_fn=config_dir / 'trompt.yaml', model_name='trompt')
+                    # self.run_one_model(config_fn=config_dir / 'tabnet.yaml', model_name='tabnet')
+                    # self.run_one_model(config_fn=config_dir / 'tabtransformer.yaml', model_name='tabtransformer')
+                    # self.run_one_model(config_fn=config_dir / 'fttransformer.yaml', model_name='fttransformer')
                     break
                 elif arg == 'catboost':
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")

@@ -50,6 +50,7 @@ class ExcelFormer(BaseModel):
         unique = {col:t for col, t in zip(col_name, ctype)}
         # print(unique)
         col_to_stype = {col:torch_frame.numerical if unique[col]>10 else torch_frame.categorical for col in col_name}
+        # print(col_to_stype)
         # col_to_stype = {col:torch_frame.numerical for col in col_name}
         # print(col_to_stype)
 
@@ -197,7 +198,7 @@ class ExcelFormer(BaseModel):
        
         # initialize ExcelFormer
         num_classes = max(y["class"].values.tolist()) + 1
-        self.out_channels = num_classes if self.task == 'classification' else 1
+        self.out_channels = int(num_classes) if self.task == 'classification' else 1
         self.model = Excel4ormer(in_channels=self.in_channels,
                             out_channels=self.out_channels,
                             num_cols=train_tensor_frame.num_cols,
