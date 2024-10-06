@@ -10,6 +10,7 @@ from bgnn.models.BGNN_v2 import BGNN_v2
 from bgnn.models.agg_BGNN import agg_BGNN
 from bgnn.models.agg_BGNN_dnf import agg_BGNN_dnf
 from bgnn.models.agg_BGNN_dg import agg_BGNN_dg
+from bgnn.models.agg_BGNN_v2 import agg_BGNN_v2
 from bgnn.scripts.utils import NpEncoder
 from bgnn.models.Base import BaseModel
 
@@ -115,7 +116,7 @@ class RunModel:
         elif dataset == 'optdigit':
             input_folder = dataset_dir / 'optdigit'
         else:
-            input_folder = dataset_dir / dataset
+            input_folder = dataset_dir / f'{dataset}_s4'
 
         if self.save_folder is None:
             self.save_folder = f'results/{dataset}/{datetime.datetime.now().strftime("%d_%m")}'
@@ -143,7 +144,7 @@ class RunModel:
 
                 inputs = {'X': self.X, 'y': self.y, 'train_mask': self.train_mask,
                           'val_mask': self.val_mask, 'test_mask': self.test_mask, 'cat_features': self.cat_features}
-                if model_name in ['gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg']:
+                if model_name in ['gnn', 'resgnn', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg', 'aggBGNN_v2']:
                     inputs['graph'] = self.graph
                     inputs['graph_pred'] = self.graph_pred
                     inputs['graph_leaf'] = self.graph_leaf
@@ -245,6 +246,8 @@ class RunModel:
             return agg_BGNN_dnf(self.task, **ps)
         elif model_name == 'aggBGNN_dg':
             return agg_BGNN_dg(self.task, **ps)
+        elif model_name == 'aggBGNN_v2':
+            return agg_BGNN_v2(self.task, **ps)
 
     def create_save_folder(self, seed):
         self.seed_folder = f'{self.save_folder}/{seed}'
@@ -282,7 +285,7 @@ class RunModel:
 
     def aggregate_results(self):
         algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'bgnn', 'resgnnL', 
-                 'resgnnSVM', 'resgnnXG','emb-GBDT', 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg']
+                 'resgnnSVM', 'resgnnXG','emb-GBDT', 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg', 'aggBGNN_v2']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -419,6 +422,7 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'agg-bgnn.yaml', model_name="aggBGNN")
                     self.run_one_model(config_fn=config_dir / 'agg-bgnn-dnf.yaml', model_name="aggBGNN_dnf")
                     self.run_one_model(config_fn=config_dir / 'agg-bgnn-dg.yaml', model_name="aggBGNN_dg")
+                    self.run_one_model(config_fn=config_dir / 'agg-bgnn-dg.yaml', model_name="aggBGNN_v2")
                     break
                 elif arg == 'catboost':
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
@@ -448,6 +452,8 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'agg-bgnn-dnf.yaml', model_name="aggBGNN_dnf")
                 elif arg == 'aggBGNN_dg':
                     self.run_one_model(config_fn=config_dir / 'agg-bgnn-dg.yaml', model_name="aggBGNN_dg")
+                elif arg == 'aggBGNN_v2':
+                    self.run_one_model(config_fn=config_dir / 'agg-bgnn-dg.yaml', model_name="aggBGNN_v2")
 
             self.save_results(seed)
             if ix+1 >= max_seeds:
@@ -456,4 +462,27 @@ class RunModel:
         print(f'Finished {dataset}: {time.time() - start2run} sec.')
 
 if __name__ == '__main__':
-    fire.Fire(RunModel().run)
+    # sd_path = Path(__file__).parent.parent / 'datasets' / 'huggingFace_sd'
+    # datasets_ls = [dir for dir in os.listdir(sd_path) if os.path.isdir(os.path.join(sd_path, dir))]
+    # datasets_ls = sorted(datasets_ls)
+
+    datasets_ls = ['Absenteeism_at_work', 'analcatdata_creditscore', 'analcatdata_lawsuit', 'Analytics_Vidhya_Loan_Prediction', 'Audit_Data',
+                'Audit_Data_UCI', 'Automobiles', 'Bigg_Boss_India', 'Breast_Cancer_Coimbra', 'Breast_Cancer_Dataset',
+                'Campus_Recruitment', 'Cervical_cancer_Risk_Factors', 'chronic_kidney_disease', 'Climate_Model_Simulation_Crashes',
+                'Collection_of_Classification_Datasets_House_Price', 'Compositions_of_Glass', 'Credit_Card_Approval', 
+                'Customer_Classification', 'Development_Index', 'Diabetes-Data-Set', 'DiabeticMellitus', 
+                'Early_stage_diabetes_risk_prediction_dataset', 'extention_of_Z-Alizadeh_sani_dataset', 'fitbit_dataset',
+                'HCV_data', 'Heart_disease_classification', 'Heart_failure_clinical_records', 'Horse_Colic_Dataset_with_test_file',
+                'hungarian', 'Indian_Liver_Patient_Patient_Records_KFolds_5folds', 'Intersectional_Bias_Assessment_Testing_Data',
+                'nki70_arff', 'Parkinson_Dataset_with_replicated_acoustic_features', 'Penguins_Classified', 'Pima_Indians_Diabetes',
+                'Pima_Indians_Diabetes_with_null_values', 'Pokmon_Legendary_Data', 'QSAR_Bioconcentration_classes_dataset',
+                'Quality_Assessment_of_Digital_Colposcopies', 'Real_Estate_DataSet', 'Startup_Success_Prediction', 
+                'Store_Data_Performance', 'student_grade_pass_or_fail_prediction', 'Swiss_banknote_conterfeit_detection',
+                'The_Estonia_Disaster_Passenger_List', 'tokyo1', 'User_Knowledge_Modeling', 'Z_Alizadeh_Sani']
+
+    for dataset in datasets_ls:
+        RunModel().run(dataset, "all",
+                       save_folder="aggBGNN",
+                       task="classification")
+    
+    # fire.Fire(RunModel().run)

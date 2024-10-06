@@ -76,13 +76,14 @@ class GBDTCatBoost:
             plot=False, verbose=False,
             loss_fn="", metric_name='loss', gnn_embedding=None):
 
+        encoded_X = X.copy()
         if self.gnn_embedding is not None:
             for i in range(self.gnn_embedding.shape[1]):
-                X[X.shape[1]+2+i] = self.gnn_embedding[:, i]
+                encoded_X[encoded_X.shape[1]+2+i] = self.gnn_embedding[:, i]
         # print("X", X)
         
         X_train, y_train, X_val, y_val, X_test, y_test = \
-            self.train_val_test_split(X, y, train_mask, val_mask, test_mask)
+            self.train_val_test_split(encoded_X, y, train_mask, val_mask, test_mask)
         self.init_model(num_epochs, patience)
 
         start = time.time()

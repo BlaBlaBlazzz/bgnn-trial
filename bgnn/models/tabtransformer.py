@@ -160,6 +160,7 @@ class tabtransformer(BaseModel):
         epochs_since_last_best_metric = 0
 
 
+        X = X.copy()
         if cat_features is not None:
             X = self.encode_cat_features(X, y, cat_features, train_mask, val_mask, test_mask)
         # if normalize_features:

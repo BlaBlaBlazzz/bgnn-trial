@@ -116,9 +116,9 @@ class BaseModel(torch.nn.Module):
             loss = torch.sqrt(F.mse_loss(pred, y))
         elif self.task == 'classification':
             # Adding softmax layer
-            pred_prob = F.softmax(pred, dim=-1)
+            # pred_prob = F.softmax(pred, dim=-1)
             # calculate cross entropy
-            loss = F.cross_entropy(pred_prob, y.long())
+            loss = F.cross_entropy(pred, y.long())
         else:
             raise NotImplemented("Unknown task. Supported tasks: classification, regression.")
 

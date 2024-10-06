@@ -107,7 +107,7 @@ def write_json(data, path):
 def data_process(dataset):
     for table_name, table, task in zip(dataset['dataset_name'], dataset['table'], dataset['task']):
         table = ast.literal_eval(table)
-        if task == 'binclass':
+        if task == 'regression':
             data[table_name] = {
                 'X_num': None if not table['X_num'] else pd.DataFrame.from_dict(table['X_num']),
                 'X_cat': None if not table['X_cat'] else pd.DataFrame.from_dict(table['X_cat']),
@@ -164,12 +164,18 @@ val_data = data_process(val_data)
 test_data = data_process(test_data)
 
 # for key in train_data.keys():
-train = train_data['[kaggle]Analytics Vidhya Loan Prediction']
-val = val_data['[kaggle]Analytics Vidhya Loan Prediction']
-test = test_data['[kaggle]Analytics Vidhya Loan Prediction']
-combined_X_num = pd.concat([train['X_num'], val['X_num'], test['X_num']], axis=0, ignore_index=True)
-combined_X_cat = pd.concat([train['X_cat'], val['X_cat'], test['X_cat']], axis=0, ignore_index=True)
-combined_X = pd.concat([combined_X_cat, combined_X_num], axis=1)
+train = train_data['[openml]AAPL_stock_price_2021_2022']
+val = val_data['[openml]AAPL_stock_price_2021_2022']
+test = test_data['[openml]AAPL_stock_price_2021_2022']
+
+
+    # combined train & val & test
+combined_X = pd.concat([train['X_num'], val['X_num'], test['X_num']], axis=0, ignore_index=True)
+
+if train['X_cat'] is not None:
+    combined_X_cat = pd.concat([train['X_cat'], val['X_cat'], test['X_cat']], axis=0, ignore_index=True)
+    combined_X = pd.concat([combined_X, combined_X_cat], axis=1)
+
 combined_y = np.append(np.append(train['y'], val['y']), test['y'])
 combined_y = pd.DataFrame(combined_y, columns=['class'])
 

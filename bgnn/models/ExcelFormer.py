@@ -45,6 +45,7 @@ class ExcelFormer(BaseModel):
     def data_loader(self, X, y, train_mask, val_mask, test_mask):
         
         data = pd.concat([X, y], axis=1)
+        # print(data)
         col_name = data.columns.tolist()
         ctype = data.nunique().tolist() # verify categorical / numerical
         unique = {col:t for col, t in zip(col_name, ctype)}
@@ -161,7 +162,7 @@ class ExcelFormer(BaseModel):
         best_val_epoch = 0
         epochs_since_last_best_metric = 0
 
-
+        X = X.copy()
         if cat_features is not None:
             X = self.encode_cat_features(X, y, cat_features, train_mask, val_mask, test_mask)
         # if normalize_features:

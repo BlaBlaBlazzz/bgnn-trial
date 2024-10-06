@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from catboost import Pool, CatBoostClassifier, CatBoostRegressor, sum_models
-from .GNN import GNNModelDGL, GATDGL, AggregatedGNN
+from .GNN import GNNModelDGL, GATDGL
 from .Base import BaseModel
 from sklearn import preprocessing
 from tqdm import tqdm
@@ -65,11 +65,14 @@ class agg_BGNN_v2(BaseModel):
         return gbdt_model
 
     def init_gnn_model(self):
-        self.model = AggregatedGNN(in_dim=self.in_dim,
+        if self.use_leaderboard:
+            self.model = [GATDGL(in_feats=self.in_dim[m], n_classes=self.out_dim).to(self.device) for m in range(3)]
+        else:
+            self.model = [GNNModelDGL(in_dim=self.in_dim[m],
                                      hidden_dim=self.hidden_dim,
                                      out_dim=self.out_dim,
                                      name=self.name,
-                                     dropout=self.dropout).to(self.device)
+                                     dropout=self.dropout).to(self.device) for m in range(3)]
 
     def append_gbdt_model(self, new_gbdt_model, weights, m):
         if self.gbdt_model[m] is None:
@@ -205,17 +208,18 @@ class agg_BGNN_v2(BaseModel):
 
     def init_node_features(self, X, m):
         node_features = torch.empty(X.shape[0], self.in_dim[m], requires_grad=True, device=self.device)
-        print("node_feature:", node_features.shape)
         if (not self.only_gbdt) and m!=0:
             node_features.data[:, :X.shape[1]] = torch.from_numpy(X.to_numpy(copy=True))
-        return node_features
+        return node_features   
 
     def init_node_parameters(self, num_nodes):
         return torch.empty(num_nodes, self.iter_per_epoch, requires_grad=True, device=self.device)
 
     def init_optimizer2(self, node_features, learning_rate):
-        print(self.model.agg_model[0].parameters())
-        params = [self.model.parameters()]
+
+        params = list(self.model[0].parameters()) + list(self.model[1].parameters()) + list(self.model[2].parameters())
+        params = [params, node_features]
+        # params.append([node_features])
         optimizer = torch.optim.Adam(itertools.chain(*params), lr=learning_rate)
         return optimizer
 
@@ -237,7 +241,7 @@ class agg_BGNN_v2(BaseModel):
 
         # self.model.eval()
         # logits = self.model(*model_in).squeeze()
-        logits = F.softmax(logits, axis=-1)
+        # logits = F.softmax(logits, axis=-1)
         train_results = self.evaluate_model(logits, target_labels, train_mask)
         val_results = self.evaluate_model(logits, target_labels, val_mask)
         test_results = self.evaluate_model(logits, target_labels, test_mask)
@@ -247,32 +251,32 @@ class agg_BGNN_v2(BaseModel):
                                test_results[metric_name].detach().item()
                                ))
 
-    def train_models(self, logits, target_labels, train_mask, optimizer):
-        with torch.autograd.detect_anomaly():
-            y = target_labels[train_mask]
-            pred = logits[train_mask]
+    def train_models(self, model_in, target_labels, train_mask, optimizer):
+        y = target_labels[train_mask]
 
-            if self.task == 'regression':
-                loss = torch.sqrt(F.mse_loss(pred, y))
-            elif self.task == 'classification':
-                # Adding softmax layer
-                pred_prob = F.softmax(pred, dim=-1)
-                # calculate cross entropy
-                loss = F.cross_entropy(pred_prob, y.long())
-
-                pred_labels = torch.argmax(pred_prob, dim=-1)  # get the predicted class
-                correct = (pred_labels == y).sum().item()  # count correct predictions
-                total = len(y)
-                accuracy = correct / total
-            else:
-                raise NotImplemented("Unknown task. Supported tasks: classification, regression.")
+        agg_logits = None
+        for m in range(3):
+            self.model[m].train()
+            logits = self.model[m](*model_in[m]).squeeze()
             
-            print(loss)
-            print(accuracy)
+            if agg_logits is None:
+                agg_logits = logits[train_mask]
+            else:
+                agg_logits  = agg_logits + logits[train_mask]
 
-            optimizer.zero_grad()
-            loss.backward(retain_graph=True)
-            optimizer.step()
+        if self.task == 'regression':
+            loss = torch.sqrt(F.mse_loss(agg_logits, y))
+        elif self.task == 'classification':
+            # Adding softmax layer
+            pred_prob = F.softmax(agg_logits, dim=-1)
+            # calculate cross entropy
+            loss = F.cross_entropy(pred_prob, y.long())
+        else:
+            raise NotImplemented("Unknown task. Supported tasks: classification, regression.")
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
         return loss
 
     def fit(self, graph, graph_pred, graph_leaf, X, y, train_mask, val_mask, test_mask, cat_features,
@@ -293,7 +297,8 @@ class agg_BGNN_v2(BaseModel):
         if self.task == 'regression':
             self.out_dim = y.shape[1]
         elif self.task == 'classification':
-            self.out_dim = len(set(y.iloc[test_mask, 0]))
+            self.out_dim = 2
+            # self.out_dim = len(set(y.iloc[test_mask, 0]))
         # self.in_dim = X.shape[1] if not self.only_gbdt else 0
         # self.in_dim += 3 if uncertainty else 1
             
@@ -302,15 +307,8 @@ class agg_BGNN_v2(BaseModel):
         self.in_dim3 = X.shape[1] + self.out_dim # X + prediction
         self.in_dim = [self.in_dim1, self.in_dim2, self.in_dim3]
 
-        # load graph
-        self.graph1 = graph.to(self.device)
-        self.graph2 = graph_pred.to(self.device)
-        self.graph3 = graph_leaf.to(self.device)
-        self.graph = [self.graph1, self.graph2, self.graph3]
-
         # gnn model list consisting of 3 models
         self.init_gnn_model()
-        print(self.model)
 
         gbdt_X_train = X.iloc[train_mask]
         gbdt_y_train = [y.iloc[train_mask] for _ in range(3)]
@@ -330,8 +328,6 @@ class agg_BGNN_v2(BaseModel):
         # node feature list
         node_features = [self.init_node_features(encoded_X, m) for m in range(3)]
         node_features_before = [node_features[0].clone() for _ in range(3)]
-        # node_features = torch.tensor(item.cpu().detach().numpy() for item in node_features)
-        # node_features_before = torch.tensor(item.cpu().detach().numpy() for item in node_features_before)
         
         optimizer = self.init_optimizer2(node_features, learning_rate=self.learning_rate)
 
@@ -344,14 +340,18 @@ class agg_BGNN_v2(BaseModel):
         #     graph2 = self.networkx_to_torch(graph_pred)
         #     graph3 = self.networkx_to_torch(graph_leaf)
 
-        self.update_node_features = [self.update_node_features1, self.update_node_features2, self.update_node_features3]
+        self.graph1 = graph.to(self.device)
+        self.graph2 = graph_pred.to(self.device)
+        self.graph3 = graph_leaf.to(self.device)
+        self.graph = [self.graph1, self.graph2, self.graph3]
 
-        torch.autograd.set_detect_anomaly(True)
+        self.update_node_features = [self.update_node_features1, self.update_node_features2, self.update_node_features3]
 
         pbar = tqdm(range(num_epochs))
         for epoch in pbar:
             agg_logits = torch.zeros(node_features[0].shape[0], self.out_dim).cuda()
             for m in range(3):
+                # print("m:", m)
                 start2epoch = time.time()
 
                 # gbdt
@@ -360,30 +360,27 @@ class agg_BGNN_v2(BaseModel):
                 
                 # return updated node features
                 self.update_node_features[m](node_features, X, encoded_X, m)
+                # print("node_features", node_features[0].shape)
+                # print("node_features", node_features[1].shape)
+                # print("node_features", node_features[2].shape)
                 node_features_before[m] = node_features[m].clone()
-            
-            print("node_features", node_features[0].shape)
-            print("node_features", node_features[1].shape)
-            print("node_features", node_features[2].shape)
 
-            model_in=(self.graph, node_features)
-
-            self.model.train()
-            logits = self.model(*model_in).squeeze()
-            print(logits.shape)
-
+            model_in = list(zip(*(self.graph, node_features)))
             # train model
             for _ in range(self.iter_per_epoch):
-                loss = self.train_models(logits, y, train_mask, optimizer)
+                loss = self.train_models(model_in, y, train_mask, optimizer)
 
             # evaluation mode 
-            self.model.eval()
-            gbdt_y_train[m] = self.update_gbdt_targets(node_features[m], node_features_before[m], train_mask, m)
-            
-            logits = self.model[m](*model_in).squeeze()
-            agg_logits = torch.cat([agg_logits, logits], axis=-1)
-            print(logits[0])
-            print("agg", agg_logits[0])
+            for m in range(3):
+                self.model[m].eval()
+                gbdt_y_train[m] = self.update_gbdt_targets(node_features[m], node_features_before[m], train_mask, m)
+                
+                logits = self.model[m](*model_in[m]).squeeze()
+                # print(m)
+                # print(self.evaluate_model(logits, y, train_mask))
+                # print(self.evaluate_model(logits, y, val_mask))
+                # print(self.evaluate_model(logits, y, test_mask))
+                agg_logits += logits
 
 
             self.evaluate_metrics(agg_logits, y, train_mask, val_mask, test_mask,

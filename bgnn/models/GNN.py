@@ -170,7 +170,7 @@ class GNNModelDGL(torch.nn.Module):
         if self.name == 'gat':
             h = self.l1(graph, h).flatten(1)
             logits = self.l2(graph, h).mean(1)
-        elif self.name in ['appnp']:
+        elif self.name in 'appnp':
             h = self.lin1(h)
             logits = self.l1(graph, h)
         elif self.name == 'agnn':
@@ -186,11 +186,83 @@ class GNNModelDGL(torch.nn.Module):
 
         return logits
 
+class AggregatedGNN(torch.nn.Module):
+    def __init__(self, in_dim, hidden_dim, out_dim, name='gat', dropout=0., residual=True):
+        super(AggregatedGNN, self).__init__()
+
+        self.name = name
+        self.agg_model = nn.ModuleList()
+        for i in range(3):
+            if name == 'gat':
+                l1 = GATConvDGL(in_dim[i], hidden_dim//8, 8, feat_drop=dropout, attn_drop=dropout, residual=False,
+                                activation=F.elu)
+                l2 = GATConvDGL(hidden_dim, out_dim, 1, feat_drop=dropout, attn_drop=dropout, residual=residual, activation=None)
+                module = nn.ModuleList([l1, l2])
+            elif name == 'gcn':
+                l1 = GraphConv(in_dim[i], hidden_dim, activation=F.elu)
+                l2 = GraphConv(hidden_dim, out_dim, activation=F.elu)
+                drop = Dropout(p=dropout)
+                module = nn.ModuleList([l1, l2, drop])
+            elif name == 'cheb':
+                l1 = ChebConvDGL(in_dim[i], hidden_dim, k = 3)
+                l2 = ChebConvDGL(hidden_dim, out_dim, k = 3)
+                drop = Dropout(p=dropout)
+                module = nn.ModuleList([l1, l2, drop])
+            elif name == 'agnn':
+                lin1 = Sequential(Dropout(p=dropout), Linear(in_dim[i], hidden_dim), ELU())
+                l1 = AGNNConvDGL(learn_beta=False)
+                l2 = AGNNConvDGL(learn_beta=True)
+                lin2 = Sequential(Dropout(p=dropout), Linear(hidden_dim, out_dim), ELU())
+                module = nn.ModuleList([lin1, l1, l2, lin2])
+            elif name == 'appnp':
+                lin1 = Sequential(Dropout(p=dropout), Linear(in_dim[i], hidden_dim),
+                        ReLU(), Dropout(p=dropout), Linear(hidden_dim, out_dim))
+                l1 = APPNPConv(k=10, alpha=0.1, edge_drop=0.)
+                module = nn.ModuleList([lin1, l1])
+            self.agg_model.append(module)
+    
+    def forward(self, graph, features):
+        '''
+        graph: list containing 3 graphs
+        features: list containing 3 node features
+        '''
+        agg_logits = None
+        for i in range(3):
+            g = graph[i]
+            h = features[i].clone()
+            if self.name == 'gat':
+                h = self.agg_model[i][0](g, h).flatten(1)
+                logits = self.agg_model[i][1](g, h).mean(1)
+            elif self.name in ['appnp']:
+                h = self.agg_model[i][0](h)
+                logits = self.agg_model[i][1](g, h)
+            elif self.name == 'agnn':
+                h = self.lin1(h)
+                h = self.l1(g, h)
+                h = self.l2(g, h)
+                logits = self.lin2(h)
+            elif self.name in ['gcn', 'cheb']:
+                h = self.drop(h)
+                h = self.l1(g, h)
+                logits = self.l2(g, h)
+
+            if agg_logits is None:
+                agg_logits = logits
+            else:
+                agg_logits = agg_logits + logits
+        
+        return agg_logits
+
+
+
+
+
 class GNN(BaseModel):
     def __init__(self, task='regression', lr=0.01, hidden_dim=64, dropout=0.,
                  name='gat', residual=True, lang='dgl',
                 gbdt_predictions=None, mlp=False, use_leaderboard=False, only_gbdt=False):
         super(GNN, self).__init__()
+
 
         self.dropout = dropout
         self.learning_rate = lr

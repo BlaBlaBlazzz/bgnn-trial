@@ -97,7 +97,7 @@ class RunModel:
         elif dataset == 'slap':
             input_folder = dataset_dir / 'slap'
         else:
-            input_folder = dataset_dir / dataset
+            input_folder = dataset_dir / f"{dataset}_s4"
 
         if self.save_folder is None:
             self.save_folder = f'results/{dataset}/{datetime.datetime.now().strftime("%d_%m")}'
@@ -217,7 +217,6 @@ class RunModel:
                      cat_features = self.cat_features,
                      num_epochs = 300, patience = 100,
                      loss_fn=None, metric_name='accuracy')
-            print(self.X)
             predictions = gbdt.model.predict(self.X)
             predictions = [np.argmax(line) for line in predictions]
             predictions = np.reshape(predictions, (len(predictions), 1))
@@ -351,8 +350,8 @@ class RunModel:
         print(dataset_dir, config_dir)
 
         self.task = task
-        # self.save_folder = save_folder
-        self.save_folder = Path('./results/huggingFace_sd') / dataset / dataset / save_folder
+        self.save_folder = save_folder
+        self.save_folder = Path('./results/huggingFace_sd') / dataset / f"{dataset}_s4" / save_folder
         self.get_input(dataset_dir, dataset)
 
         self.seed_results = dict()
@@ -360,7 +359,7 @@ class RunModel:
             # print("ix:", ix, "seed:", seed)
             print(f'{dataset} Seed {seed}')
             self.seed = seed
-
+            
             self.create_save_folder(seed)
             self.split_masks(seed)
 
@@ -379,11 +378,11 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'resgnnXG.yaml', model_name="resgnnXG")
                     self.run_one_model(config_fn=config_dir / 'emb-GBDT.yaml', model_name="emb-GBDT")
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
-                    # self.run_one_model(config_fn=config_dir / 'ExcelFormer.yaml', model_name='ExcelFormer')
-                    # self.run_one_model(config_fn=config_dir / 'trompt.yaml', model_name='trompt')
-                    # self.run_one_model(config_fn=config_dir / 'tabnet.yaml', model_name='tabnet')
-                    # self.run_one_model(config_fn=config_dir / 'tabtransformer.yaml', model_name='tabtransformer')
-                    # self.run_one_model(config_fn=config_dir / 'fttransformer.yaml', model_name='fttransformer')
+                    self.run_one_model(config_fn=config_dir / 'ExcelFormer.yaml', model_name='ExcelFormer')
+                    self.run_one_model(config_fn=config_dir / 'trompt.yaml', model_name='trompt')
+                    self.run_one_model(config_fn=config_dir / 'tabnet.yaml', model_name='tabnet')
+                    self.run_one_model(config_fn=config_dir / 'tabtransformer.yaml', model_name='tabtransformer')
+                    self.run_one_model(config_fn=config_dir / 'fttransformer.yaml', model_name='fttransformer')
                     break
                 elif arg == 'catboost':
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
@@ -429,4 +428,17 @@ class RunModel:
         print(f'Finished {dataset}: {time.time() - start2run} sec.')
 
 if __name__ == '__main__':
-    fire.Fire(RunModel().run)
+    # fire.Fire(RunModel().run)
+
+    datasets_ls = ['Indian_Liver_Patient_Patient_Records_KFolds_5folds', 'Intersectional_Bias_Assessment_Testing_Data',
+                   'nki70_arff', 'Parkinson_Dataset_with_replicated_acoustic_features', 'Penguins_Classified', 'Pima_Indians_Diabetes',
+                   'Pima_Indians_Diabetes_with_null_values', 'Pokmon_Legendary_Data', 'QSAR_Bioconcentration_classes_dataset',
+                   'Quality_Assessment_of_Digital_Colposcopies', 'Real_Estate_DataSet', 'Startup_Success_Prediction', 
+                   'Store_Data_Performance', 'student_grade_pass_or_fail_prediction', 'Swiss_banknote_conterfeit_detection',
+                   'The_Estonia_Disaster_Passenger_List', 'tokyo1', 'User_Knowledge_Modeling', 'Z_Alizadeh_Sani']
+
+
+    for dataset in datasets_ls:
+        RunModel().run(dataset, "all",
+                       save_folder="selected_models",
+                       task="classification")

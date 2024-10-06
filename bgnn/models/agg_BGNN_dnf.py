@@ -336,7 +336,8 @@ class agg_BGNN_dnf(BaseModel):
         if self.task == 'regression':
             self.out_dim = y.shape[1]
         elif self.task == 'classification':
-            self.out_dim = len(set(y.iloc[test_mask, 0]))
+            self.out_dim = 2
+            # self.out_dim = len(set(y.iloc[test_mask, 0]))
         # self.in_dim = X.shape[1] if not self.only_gbdt else 0
         # self.in_dim += 3 if uncertainty else 1
             
