@@ -48,6 +48,7 @@ class agg_BGNN(BaseModel):
                 catboost_model_obj = CatBoostClassifier
                 catboost_loss_fn = 'MultiClass'
             else:
+
                 catboost_model_obj = CatBoostRegressor
                 catboost_loss_fn = 'MultiRMSE'
 
@@ -57,7 +58,8 @@ class agg_BGNN(BaseModel):
                                   loss_function=catboost_loss_fn,
                                   random_seed=0,
                                   nan_mode='Min',
-                                  allow_const_label=True)
+                                  allow_const_label=True,
+                                  task_type='GPU')
 
     def fit_gbdt(self, pool, trees_per_epoch, epoch):
         gbdt_model = self.init_gbdt_model(trees_per_epoch, epoch)
@@ -93,40 +95,39 @@ class agg_BGNN(BaseModel):
     # predictions + leaf_index
     def update_node_features1(self, node_features, X, encoded_X, m):
         if self.task == 'regression':
-            prediction = np.expand_dims(self.gbdt_model.calc_leaf_indexes(X), axis=1)
+            predictions = np.expand_dims(self.gbdt_model[m].predict(X), axis=1)
+            # predictions = self.gbdt_model[m]
         else:
             predictions = self.base_gbdt[m].predict_proba(X)
-            # MinMaxScaler
-            min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1,1))
-            if self.leaf_idx_before[m] is None:
-                leaf_idx = self.base_gbdt[m].calc_leaf_indexes(X)
-                # print("leaf_index", leaf_idx[0])
-                leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
-                self.leaf_idx_before[m] = leaf_idx
-            
             if self.gbdt_model[m] is not None:
-                # predictions
-                predictions_after_one = self.gbdt_model[m].predict(X)
+                predictions_after_one = self.gbdt_model[m].predict(X)[:, :self.out_dim]
                 predictions += predictions_after_one
 
-                # epoch leaf indexes
-                leaf_idx_cur = self.cur_gbdt.calc_leaf_indexes(X)
-                self.leaf_idx_before[m] = np.append(self.leaf_idx_before[m], leaf_idx_cur, axis=1)
-                # print("leaf index before", self.leaf_idx_before[m][0])
+        # MinMaxScaler
+        min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1,1))
+        if self.leaf_idx_before[m] is None:
+            if self.task == 'classification':
+                leaf_idx = self.base_gbdt[m].calc_leaf_indexes(X)
+            else: 
+                leaf_idx = self.gbdt_model[m].calc_leaf_indexes(X)
+            
+            leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
+            self.leaf_idx_before[m] = leaf_idx
+                
+        
+        # first iteration
+        if self.gbdt_model[m] is not None:
+            leaf_idx_cur = self.cur_gbdt.calc_leaf_indexes(X)
+            self.leaf_idx_before[m] = np.append(self.leaf_idx_before[m], leaf_idx_cur, axis=1)
+            # print("leaf index before", self.leaf_idx_before[m][0])
 
-                leaf_idx_reshaped = self.leaf_idx_before[m].reshape(len(X), -1, self.iter_per_epoch).view()         
-                leaf_idx = np.sum(leaf_idx_reshaped, axis=1)
-                # print(leaf_idx[0])
-                leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
+            leaf_idx_reshaped = self.leaf_idx_before[m].reshape(len(X), -1, self.iter_per_epoch).view()         
+            leaf_idx = np.sum(leaf_idx_reshaped, axis=1)
+            leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
                 
         if not self.only_gbdt:
-            if self.train_residual:
-                # concat predictions and leaf index
-                node_features_tem = np.append(predictions, leaf_idx_normalized, axis=1)
-                # print(node_features_tem.shape)
-            else:
-                node_features_tem = np.append(predictions, leaf_idx_normalized, axis=1)
-                # print(node_features_tem.shape)
+            # print(leaf_idx_normalized.shape)
+            node_features_tem = np.append(predictions, leaf_idx_normalized, axis=1)
 
         node_features_tem = node_features_tem.astype("float")
         node_features_tem = torch.from_numpy(node_features_tem).to(self.device)
@@ -135,36 +136,31 @@ class agg_BGNN(BaseModel):
     
     # X + leaf index
     def update_node_features2(self, node_features, X, encocde_X, m):
-        if self.task == 'regression':
-            predictions = np.expand_dims(self.gbdt_model.predict(X), axis=1)
-        else:
-            # MinMaxScaler
-            min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1,1))
-            if self.leaf_idx_before[m] is None:
+        # MinMaxScaler
+        min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1,1))
+        if self.leaf_idx_before[m] is None:
+            if self.task == 'classification':
                 leaf_idx = self.base_gbdt[m].calc_leaf_indexes(X)
-                # print("leaf index 3", leaf_idx[0])
-                leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
-                self.leaf_idx_before[m] = leaf_idx
-            
-            if self.gbdt_model[m] is not None:
-                # epoch leaf indexes
-                leaf_idx_cur = self.cur_gbdt.calc_leaf_indexes(X)
-                self.leaf_idx_before[m] = np.append(self.leaf_idx_before[m], leaf_idx_cur, axis=1)
-                # print("leaf index before 3", self.leaf_idx_before[m][0])
+            else:
+                leaf_idx = self.gbdt_model[m].calc_leaf_indexes(X)
+            # print("leaf index 3", leaf_idx[0])
+            leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
+            self.leaf_idx_before[m] = leaf_idx
+        
+        if self.gbdt_model[m] is not None:
+            # epoch leaf indexes
+            leaf_idx_cur = self.cur_gbdt.calc_leaf_indexes(X)
+            self.leaf_idx_before[m] = np.append(self.leaf_idx_before[m], leaf_idx_cur, axis=1)
+            # print("leaf index before 3", self.leaf_idx_before[m][0])
 
-                leaf_idx_reshaped = self.leaf_idx_before[m].reshape(len(X), -1, self.iter_per_epoch).view()         
-                leaf_idx = np.sum(leaf_idx_reshaped, axis=1)
-                # print(leaf_idx[0])
-                leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
+            leaf_idx_reshaped = self.leaf_idx_before[m].reshape(len(X), -1, self.iter_per_epoch).view()         
+            leaf_idx = np.sum(leaf_idx_reshaped, axis=1)
+            # print(leaf_idx[0])
+            leaf_idx_normalized = min_max_scaler.fit_transform(leaf_idx)
                 
         if not self.only_gbdt:
-            if self.train_residual:
-                # concat predictions and leaf index
-                node_features_tem = np.append(node_features[m].detach().cpu().data[:, :-self.iter_per_epoch], leaf_idx_normalized, axis=1)
-                # print(node_features_tem.shape)
-            else:
-                node_features_tem = np.append(node_features[m].detach().cpu().data[:, :-self.iter_per_epoch], leaf_idx_normalized, axis=1)
-                # print(node_features_tem.shape)
+            node_features_tem = np.append(node_features[m].detach().cpu().data[:, :-self.iter_per_epoch], leaf_idx_normalized, axis=1)
+            # print(node_features_tem.shape)
 
         node_features_tem = node_features_tem.astype("float")
         node_features_tem = torch.from_numpy(node_features_tem).to(self.device)
@@ -173,7 +169,7 @@ class agg_BGNN(BaseModel):
     # X + predictions
     def update_node_features3(self, node_features, X, encoded_X, m):
         if self.task == 'regression':
-            predictions = np.expand_dims(self.gbdt_model.predict(X), axis=1)
+            predictions = np.expand_dims(self.gbdt_model[m].predict(X), axis=1)
             # predictions = self.gbdt_model.virtual_ensembles_predict(X,
             #                                                         virtual_ensembles_count=5,
             #                                                         prediction_type='TotalUncertainty')
@@ -189,8 +185,10 @@ class agg_BGNN(BaseModel):
             if self.train_residual:
                 predictions = np.append(node_features[m].detach().cpu().data[:, :-self.out_dim], predictions,
                                         axis=1)  # append updated X to prediction
+                predictions = torch.cat([node_features[m].detach().cpu().data[:, :-self.out_dim], predictions], dim=1)
             else:
                 predictions = np.append(encoded_X, predictions, axis=1)  # append X to prediction
+                # predictions = torch.cat([encoded_X, predictions], dim=1)
 
         predictions = torch.from_numpy(predictions).to(self.device)
 
@@ -198,7 +196,7 @@ class agg_BGNN(BaseModel):
 
     def update_gbdt_targets(self, node_features, node_features_before, train_mask, m):
         if m == 0:
-            residual = (node_features - node_features_before).detach().cpu().numpy()[train_mask, -self.out_dim:]
+            residual = (node_features - node_features_before).detach().cpu().numpy()[train_mask, :]
         elif m == 1:
             residual = (node_features - node_features_before).detach().cpu().numpy()[train_mask, -self.iter_per_epoch:]
         else:
@@ -260,7 +258,7 @@ class agg_BGNN(BaseModel):
         pred = logits[train_mask]
 
         if self.task == 'regression':
-            loss = torch.sqrt(F.mse_loss(pred, y))
+            loss = torch.sqrt(F.mse_loss(pred.view(-1), y.view(-1)))
         elif self.task == 'classification':
             # Adding softmax layer
             # pred_prob = F.softmax(pred, dim=-1)
@@ -332,7 +330,7 @@ class agg_BGNN(BaseModel):
         optimizer = [self.init_optimizer2(node_features[m], optimize_node_features=True, learning_rate=self.learning_rate, m=m) for m in range(3)]
 
         y, = self.pandas_to_torch(y)
-        self.y = y
+        self.y = y.to(self.device)
         
         # # Load graph
         # if self.lang == 'dgl':
@@ -349,7 +347,8 @@ class agg_BGNN(BaseModel):
 
         pbar = tqdm(range(num_epochs))
         for epoch in pbar:
-            agg_logits = torch.zeros(node_features[0].shape[0], self.out_dim).cuda()
+            
+            agg_logits = None
             for m in range(3):
                 # print("m:", m)
                 start2epoch = time.time()
@@ -364,7 +363,7 @@ class agg_BGNN(BaseModel):
                 # print("node_features", node_features[1].shape)
                 # print("node_features", node_features[2].shape)
                 node_features_before[m] = node_features[m].clone()
-                model_in=(self.graph[m], node_features[m])
+                model_in=(self.graph[m].to(self.device), node_features[m].to(self.device))
 
                 # train model
                 for _ in range(self.iter_per_epoch):
@@ -373,15 +372,30 @@ class agg_BGNN(BaseModel):
                 # evaluation mode 
                 self.model[m].eval()
                 gbdt_y_train[m] = self.update_gbdt_targets(node_features[m], node_features_before[m], train_mask, m)
+                # print('gbdt y train:', gbdt_y_train[m].shape, gbdt_y_train[m][0])
+                if self.task == 'regression':
+                    # print(gbdt_y_train[m].shape)
+                    gbdt_y_train[m] = np.sum(gbdt_y_train[m], axis=1)
+                    
+                # print('gbdt y train:', gbdt_y_train[m].shape, gbdt_y_train[m][0])
                 
+                # with torch.autograd.profiler.profile(use_cuda=True) as prof:
                 logits = self.model[m](*model_in).squeeze()
-                # print(m)
-                # print(self.evaluate_model(logits, y, train_mask))
-                # print(self.evaluate_model(logits, y, val_mask))
-                # print(self.evaluate_model(logits, y, test_mask))
-                agg_logits += logits
-                # print(logits[0])
+
+                # print(prof.key_averages().table(sort_by="cuda_time_total"))
+                # print(torch.sqrt(F.mse_loss(logits[test_mask].view(-1), y[test_mask].view(-1))))
+
+                if agg_logits is None:
+                    agg_logits = logits
+                else:
+                    agg_logits += logits
                 # print("agg", agg_logits[0])
+
+            # calc mean logits
+            if self.task == 'regression':
+                agg_logits = agg_logits / 3
+            
+            
 
 
             self.evaluate_metrics(agg_logits, y, train_mask, val_mask, test_mask,
