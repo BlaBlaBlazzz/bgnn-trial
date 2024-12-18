@@ -37,16 +37,21 @@ class trompt(BaseModel):
     def train_val_test_split(self, data, train_mask, val_mask, test_mask):
         return data[train_mask], data[val_mask], data[test_mask]
 
-    def data_loader(self, X, y, train_mask, val_mask, test_mask):
+    def data_loader(self, X, y, train_mask, val_mask, test_mask, cat_features):
         
         data = pd.concat([X, y], axis=1)
+        # print(data)
         col_name = data.columns.tolist()
-        ctype = data.nunique().tolist() # verify categorical / numerical
-        unique = {col:t for col, t in zip(col_name, ctype)}
-        # print(unique)
-        col_to_stype = {col:torch_frame.numerical if unique[col]>10 else torch_frame.categorical for col in col_name}
-        # col_to_stype = {col:torch_frame.numerical for col in col_name}
-        # print(col_to_stype)
+        if cat_features is not None:
+            cat_columns = [col_name[idx] for idx in cat_features]
+        else:
+            cat_columns = []
+        
+        if self.task == 'classification':
+            cat_columns.append('class')
+        
+        col_to_stype = {col:torch_frame.numerical if col not in cat_columns else torch_frame.categorical for col in col_name}
+        # print(col_to_stype)        
 
         data = Dataset(data, col_to_stype=col_to_stype, target_col="class")
         data.materialize()
@@ -82,13 +87,13 @@ class trompt(BaseModel):
             frame = frame.to(self.device)
             out = self.model.forward_stacked(frame)
             num_layers = out.size(1)
-            pred = out.view(-1, self.dataset.num_classes)
-            y = frame.y.repeat_interleave(num_layers)
+            pred = out.view(-1, self.out_channels).to(torch.float32)
+            y = frame.y.repeat_interleave(num_layers).to(torch.float32)
 
             if self.task == "regression":
-                loss = torch.sqrt(F.mse_loss(pred, y))
+                loss = torch.sqrt(F.mse_loss(pred.view(-1), y.view(-1)))
             elif self.task == "classification":
-                loss = F.cross_entropy(pred, y)
+                loss = F.cross_entropy(pred, y.long())
             else:
                 raise NotImplemented("Unknown task. Supported tasks: classification, regression.")
             
@@ -116,8 +121,10 @@ class trompt(BaseModel):
                 y = tf.y
                 total_counts += len(y)
                 if self.task == 'regression':
-                    metrics['loss'] += torch.sqrt(F.mse_loss(pred, y) + 1e8) * len(y)
+                    metrics['loss'] += torch.sqrt(F.mse_loss(pred.view(-1), y.view(-1)) + 1e-8) * len(y)
                     metrics['rmsle'] += torch.sqrt(F.mse_loss(torch.log(pred + 1), torch.log(y + 1)).squeeze() + 1e-8) * len(y)
+                    metrics['mae'] += F.l1_loss(pred, y) * len(y)
+                    metrics['r2'] += torch.Tensor([(y == pred.max(1)[1]).sum().item() / y.shape[0]]) * len(y)
                 elif self.task == 'classification':
                     metrics['loss'] += F.cross_entropy(pred, y)
                     pred_class = pred.argmax(dim=-1)
@@ -167,13 +174,15 @@ class trompt(BaseModel):
             X = X = self.replace_na(X, train_mask)
         
         # load data
-        self.dataset, train_data, val_data, test_data = self.data_loader(X, y, train_mask, val_mask, test_mask)
+        self.dataset, train_data, val_data, test_data = self.data_loader(X, y, train_mask, val_mask, test_mask, cat_features)
         train_tensor_frame = train_data.tensor_frame
         val_tensor_frame = val_data.tensor_frame
         test_tensor_frame = test_data.tensor_frame
 
         # batch size
         batch_size, val_batch_size = self.get_batch_size(len(train_data.feat_cols))
+
+        self.out_channels = self.dataset.num_classes if self.task == 'classification' else 1
 
         # DataLoader
         train_loader = DataLoader(train_tensor_frame, batch_size=batch_size, shuffle=True)
@@ -182,7 +191,7 @@ class trompt(BaseModel):
        
         # initialize Trompt
         self.model = Trompt(channels=self.channels,
-                            out_channels=self.dataset.num_classes,
+                            out_channels=self.out_channels,
                             num_layers=self.num_layers,
                             num_prompts=self.num_prompts,
                             col_stats=self.dataset.col_stats,
@@ -208,8 +217,8 @@ class trompt(BaseModel):
 
             lr_scheduler.step()
         
-        if loss_fn:
-            self.save_metrics(metrics, loss_fn)
+        # if loss_fn:
+        #     self.save_metrics(metrics, loss_fn)
 
         print('Best {} at iteration {}: {:.3f}/{:.3f}/{:.3f}'.format(metric_name, best_val_epoch, *best_metric))
         return metrics
