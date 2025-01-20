@@ -1,0 +1,33 @@
+hp:
+  max_depth:
+  - 3
+  - 5
+  - 7
+  n_estimators:
+  - 100
+  max_features:
+  - 20
+  min_samples_leaf:
+  - 1
+num_epochs: 1000
+patience: 100
+
+
+# hp:
+#   max_depth:
+#   - 3
+#   - 5
+#   - 7
+#   n_estimators:
+#   - 100
+#   - 200
+#   - 400
+#   max_features:
+#   - 20
+#   - 40
+#   min_samples_leaf:
+#   - 1
+#   - 2
+#   - 4
+# num_epochs: 1000
+# patience: 100
