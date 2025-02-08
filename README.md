@@ -1,14 +1,24 @@
-### Boosted Graph Neural Networks
-The code and data for the ICLR 2021 paper: [Boost then Convolve: Gradient Boosting Meets Graph Neural Networks](https://openreview.net/pdf?id=ebS5NUfoMKL)
+### Aggregated Boosted Graph Neural Networks
+
+The concepts are from ICLR 2021 paper: [Boost then Convolve: Gradient Boosting Meets Graph Neural Networks](https://openreview.net/pdf?id=ebS5NUfoMKL)
+We extend the graph-based model to tabular data and compare it with state-of-the-art (SOTA) models.
 
 This code contains implementation of the following models for graphs: 
 * **CatBoost**
 * **LightGBM**
+* **XGBoost**
+* **Random Forest**
+* **ExcelFormer**
+* **Trompt**
+* **Tabtransformer**
+* **FTTransformer**
+* **TabNet**
 * **Fully-Connected Neural Network** (FCNN)
 * **GNN** (GAT, GCN, AGNN, APPNP)
 * **FCNN-GNN** (GAT, GCN, AGNN, APPNP)
 * **ResGNN** (CatBoost + {GAT, GCN, AGNN, APPNP})
 * **BGNN** (end-to-end {CatBoost + {GAT, GCN, AGNN, APPNP}})
+* **Agg-BGNN**
 
 ## Installation
 To run the models you have to download the repo, install the requirements, and extract the datasets.
