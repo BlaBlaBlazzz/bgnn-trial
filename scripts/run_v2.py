@@ -4,6 +4,7 @@ curPath = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(curPath)
 
 from bgnn.models.GBDT import GBDTCatBoost, GBDTLGBM, GBDTXGBoost
+from bgnn.models.RandomForest import RandomForest
 from bgnn.models.MLP import MLP
 from bgnn.models.GNN import GNN
 from bgnn.models.BGNN import BGNN
@@ -17,6 +18,7 @@ from bgnn.models.aggBGNN import aggBGNN
 from bgnn.models.aggBGNN_dnf import aggBGNN_dnf
 from bgnn.models.aggBGNN_dg import aggBGNN_dg
 from bgnn.models.aggBGNN_v2 import aggBGNN_v2
+from bgnn.models.ABGNN import ABGNN
 from bgnn.scripts.utils import NpEncoder
 from bgnn.models.Base import BaseModel
 
@@ -29,6 +31,7 @@ from collections import defaultdict as ddict
 
 import pandas as pd
 import networkx as nx
+import torch
 import dgl
 import random
 import warnings
@@ -41,6 +44,10 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.metrics.pairwise import cosine_similarity
 
 class RunModel:
+    def __init__(self):
+        super(RunModel, self).__init__()
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
     def read_input(self, input_folder):
         self.X = pd.read_csv(f'{input_folder}/X.csv')
         self.y = pd.read_csv(f'{input_folder}/y.csv')
@@ -136,7 +143,7 @@ class RunModel:
                 # graph
                 if model_name in ['gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'resgnnL', 'resgnnSVM', 'resgnnXG', 'bgnn_v2']:
                     inputs['networkx_graph'] = self.graph
-                elif model_name in ['aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg', 'aggBGNN_v2']:
+                elif model_name in ['aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg', 'aggBGNN_v2', 'abgnn']:
                     inputs['graph'] = self.graph
                     inputs['graph_pred'] = self.graph_pred
                     inputs['graph_leaf'] = self.graph_leaf
@@ -161,7 +168,10 @@ class RunModel:
         if model_name == 'catboost':
             return GBDTCatBoost(self.task, **ps)
         elif model_name == 'lightgbm':
+            print(ps)
             return GBDTLGBM(self.task, **ps)
+        elif model_name == 'xgboost':
+            return GBDTXGBoost(self.task, **ps)
         elif model_name == 'mlp':
             return MLP(self.task, **ps)
         elif model_name == 'gnn':
@@ -173,10 +183,10 @@ class RunModel:
             # graph = model.networkx_to_torch(self.networkx_graph)
             # node embedding
             model.fit(self.X, self.y, self.train_mask, self.val_mask, self.test_mask,
-                      cat_features=self.cat_features, networkx_graph=self.networkx_graph, 
+                      cat_features=self.cat_features, networkx_graph=self.graph, 
                       num_epochs=1000, patience=100,
                       metric_name='loss' if self.task == 'regression' else 'accuracy')
-            node_embedding = model.model(self.networkx_graph, node_features).detach().cpu().numpy()
+            node_embedding = model.model(self.graph, node_features).detach().cpu().numpy()
             # print(node_embedding)
             return GBDTCatBoost(self.task, **ps, gnn_embedding=node_embedding)
         elif model_name == 'resgnn':
@@ -231,6 +241,8 @@ class RunModel:
             return BGNN_v2(self.task, **ps)
         elif model_name == 'ExcelFormer':
             return ExcelFormer(self.task, **ps)
+        elif model_name == 'abgnn':
+            return ABGNN(self.task, **ps)
         else:
             module = globals()[model_name]
             return module(self.task, **ps)
@@ -249,11 +261,21 @@ class RunModel:
             json.dump(self.seed_results, f)
 
         self.aggregated = self.aggregate_results()
-        with open(f'{self.seed_folder}/aggregated_results.json', 'w+') as f:
-            json.dump(self.aggregated, f)
+        save_path = f'{self.save_folder}/aggregated_results.json'
+        # with open(f'{self.seed_folder}/aggregated_results.json', 'w+') as f:
+        #     json.dump(self.aggregated, f)
 
-        with open(f'{self.save_folder}/aggregated_results.json', 'w+') as f:
-            json.dump(self.aggregated, f)
+        if os.path.exists(save_path):
+            # update model results
+            with open(save_path, 'r') as f:
+                metrics = json.load(f)
+            metrics.update(self.aggregated)
+
+            with open(save_path, 'w+') as f:
+                json.dump(metrics, f)
+        else:
+            with open(save_path, 'w+') as f:
+                json.dump(self.aggregated, f)
 
     def get_model_name(self, exp_name: str, algos: list):
         # get name of the model (for gnn-like models (eg. gat))
@@ -262,7 +284,8 @@ class RunModel:
         if 'name' in exp_name:
             # print("1")
             model_name = '-' + [param[4:] for param in exp_name.split('-') if param.startswith('name')][0]
-            # print("model_name:", model_name)
+        elif 'mixup' in exp_name:
+            model_name = '-Mixup' + [param[5:] for param in exp_name.split('-') if param.startswith('mixup')][0]
         else:
             model_name = ''
 
@@ -279,7 +302,7 @@ class RunModel:
     def aggregate_results(self):
         algos = ['catboost', 'lightgbm', 'mlp', 'gnn', 'resgnn', 'resgnn_LI', 'bgnn', 'bgnn_v2', 'resgnnL', 'resgnnSVM', 'resgnnXG',
                  'emb-GBDT', 'ExcelFormer', 'trompt', 'fttransformer', 'tabnet', 'tabtransformer', 
-                 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg', 'aggBGNN_v2']
+                 'aggBGNN', 'aggBGNN_dnf', 'aggBGNN_dg', 'aggBGNN_v2', 'abgnn', 'xgboost', 'lightgbm', 'RandomForest']
         model_best_score = ddict(list)
         model_best_time = ddict(list)
 
@@ -287,7 +310,6 @@ class RunModel:
         for seed in results:
             model_results_for_seed = ddict(list)
             for name, output in results[seed].items():
-                # print("name:", name)
                 model_name = self.get_model_name(name, algos=algos)
                 if self.task == 'regression': # rmse metric
                     val_metric, test_metric, time = output[0][1], output[0][2], output[2]
@@ -308,8 +330,8 @@ class RunModel:
             # print(model)
             # print(scores)
             # print("model best time:", model_best_time[model])
-            aggregated[model] = (np.mean(scores), np.std(scores),
-                                 np.mean(model_best_time[model]), np.std(model_best_time[model]))
+            aggregated[model] = (np.nanmean(scores), np.nanstd(scores),
+                                 np.nanmean(model_best_time[model]), np.nanstd(model_best_time[model]))
         return aggregated
     
     def feature_vector(self):
@@ -363,6 +385,7 @@ class RunModel:
         graph.add_edges(src_node, dst_node)
         graph = dgl.remove_self_loop(graph)
         graph = dgl.add_self_loop(graph)
+        graph = graph.to(self.device)
 
         return graph
     
@@ -424,7 +447,7 @@ class RunModel:
             self.store_results = dict()
             for arg in args:
                 if arg == 'all':
-                    # self.run_one_model(config_fn=config_dir / 'mlp.yaml', model_name="mlp")
+                    # # self.run_one_model(config_fn=config_dir / 'mlp.yaml', model_name="mlp")
                     self.run_one_model(config_fn=config_dir / 'bgnn.yaml', model_name="bgnn")
                     self.run_one_model(config_fn=config_dir / 'bgnn_v2.yaml', model_name="bgnn_v2")
                     self.run_one_model(config_fn=config_dir / 'resgnn.yaml', model_name="resgnn")
@@ -438,13 +461,20 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'tabnet.yaml', model_name='tabnet')
                     self.run_one_model(config_fn=config_dir / 'tabtransformer.yaml', model_name='tabtransformer')
                     self.run_one_model(config_fn=config_dir / 'fttransformer.yaml', model_name='fttransformer')
-                    self.run_one_model(config_fn=config_dir / 'aggBGNN.yaml', model_name="aggBGNN")
-                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dnf.yaml', model_name="aggBGNN_dnf")
-                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_dg")
-                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_v2")
+                    # self.run_one_model(config_fn=config_dir / 'aggBGNN.yaml', model_name="aggBGNN")
+                    # self.run_one_model(config_fn=config_dir / 'aggBGNN_dnf.yaml', model_name="aggBGNN_dnf")
+                    # self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_dg")
+                    # self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_v2")
+
+                    # self.run_one_model(config_fn=config_dir / 'gnn.yaml', model_name="gnn")
+                    # self.run_one_model(config_fn=config_dir / 'xgboost.yaml', model_name="xgboost")
+                    # self.run_one_model(config_fn=config_dir / 'lightgbm.yaml', model_name="lightgbm")
+                    # self.run_one_model(config_fn=config_dir / 'RandomForest.yaml', model_name="RandomForest")
                     break
                 elif arg == 'catboost':
                     self.run_one_model(config_fn=config_dir / 'catboost.yaml', model_name="catboost")
+                elif arg == 'xgboost':
+                    self.run_one_model(config_fn=config_dir / 'xgboost.yaml', model_name="xgboost")
                 elif arg == 'lightgbm':
                     self.run_one_model(config_fn=config_dir / 'lightgbm.yaml', model_name="lightgbm")
                 elif arg == 'mlp':
@@ -473,6 +503,25 @@ class RunModel:
                     self.run_one_model(config_fn=config_dir / 'tabnet.yaml', model_name='tabnet')
                     self.run_one_model(config_fn=config_dir / 'tabtransformer.yaml', model_name='tabtransformer')
                     self.run_one_model(config_fn=config_dir / 'fttransformer.yaml', model_name='fttransformer')
+                elif arg == 'aggBGNN':
+                    # self.run_one_model(config_fn=config_dir / 'aggBGNN.yaml', model_name="aggBGNN")
+                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dnf.yaml', model_name="aggBGNN_dnf")
+                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_dg")
+                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_v2")
+                elif arg == 'aggBGNN_dnf':
+                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dnf.yaml', model_name="aggBGNN_dnf")
+                elif arg == 'aggBGNN_dg':
+                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_dg")
+                elif arg == 'aggBGNN_v2':
+                    self.run_one_model(config_fn=config_dir / 'aggBGNN_dg.yaml', model_name="aggBGNN_v2")
+                elif arg == 'abgnn':
+                    self.run_one_model(config_fn=config_dir / 'abgnn.yaml', model_name="abgnn")
+                elif arg == 'remain':
+                    self.run_one_model(config_fn=config_dir / 'gnn.yaml', model_name="gnn")
+                    self.run_one_model(config_fn=config_dir / 'ExcelFormer.yaml', model_name='ExcelFormer')
+                    self.run_one_model(config_fn=config_dir / 'xgboost.yaml', model_name="xgboost")
+                    self.run_one_model(config_fn=config_dir / 'lightgbm.yaml', model_name="lightgbm")
+                    self.run_one_model(config_fn=config_dir / 'RandomForest.yaml', model_name="RandomForest")
                 else:
                     # try:
                     config_fn = config_dir / f'{arg}.yaml'
@@ -488,7 +537,7 @@ class RunModel:
         print(f'Finished {dataset}: {time.time() - start2run} sec.')
 
 if __name__ == '__main__':
-    fire.Fire(RunModel().run)
+    fire.Fire(RunModel().run) 
 
     # sd_path = Path(__file__).parent.parent / 'datasets' / 'huggingFace_sd_regression'
     # datasets_ls = [dir for dir in os.listdir(sd_path) if os.path.isdir(os.path.join(sd_path, dir))]
@@ -496,6 +545,6 @@ if __name__ == '__main__':
     # print(datasets_ls)
 
     # for dataset in datasets_ls:
-    #     RunModel().run(dataset, "all",
-    #                    save_folder="selected_models",
+    #     RunModel().run(dataset, "aggBGNN",
+    #                    save_folder="aggBGNN",
     #                    task="regression")
