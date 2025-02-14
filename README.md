@@ -150,6 +150,7 @@ python scripts/run.py path/to/your/dataset gnn catboost
 ### Benchmark
 
 We evaluate our model on multiple small datasets (48 classification tasks + 47 regression tasks) stated in 2023 paper: [ExcelFormer: A neural network surpassing GBDTs on tabular data](https://github.com/WhatAShot/ExcelFormer)
+
 We benchmark models including classic machine learning models, tabular deep learning models, against graph-based models applying to tabular datasets.
 
 The charts below summarize the average ranking and standard deviation of various models accross 48 small classification tasks and few-shot scenarios, where a lower rank indicates better performances. Each row corresponds to a model, while each column represents 0.6/0.2/0.2 proportion or few-shot scenarios across datasets.
@@ -172,6 +173,33 @@ The charts below summarize the average ranking and standard deviation of various
 | aggBGNN-dnf    | 5.348 ± 2.505    |
 | aggBGNN-dg     | 4.804 ± 2.993    |
 
+
+The following charts also present the average ranking and standard deviation of various models across 47 small regression tasks.
+
+| Model              | 0.6/0.2/0.2    | few-shot 10 samples |
+|--------------------|----------------------|------------------------------------|
+| BGNN               | 13.915 ± 5.332     | 14.085 ± 3.629                    |
+| BGNN-PL            | 13.34 ± 4.125      | 13.553 ± 5.141                    |
+| resGNN             | 9.787 ± 4.899      | 10.915 ± 4.457                    |
+| resGNN-L           | 11.362 ± 5.754     | 10.596 ± 4.889                    |
+| resGNN-XGB         | 11.277 ± 4.822     | 11.511 ± 5.034                    |
+| GNN                | 11.809 ± 5.663     | 9.872 ± 4.739                     |
+| emb-GBDT           | 7.638 ± 4.914      | 11.106 ± 3.737                    |
+| Catboost           | 6.787 ± 4.496      | 10.787 ± 3.939                    |
+| LightGBM           | 9.447 ± 5.376      | 21.383 ± 1.095                    |
+| XGBoost            | 16.0 ± 5.481       | 14.809 ± 6.103                    |
+| Random Forest      | 8.277 ± 6.456         | 8.0 ± 4.695                       |
+| ExcelFormer-None   | 7.617 ± 5.739         | 6.979 ± 5.991                     |
+| ExcelFormer-hidden | 8.149 ± 5.254         | 5.745 ± 5.659                     |
+| ExcelFormer-feat   | 7.467 ± 4.698         | 5.674 ± 5.437                     |
+| Trompt             | 7.702 ± 5.361         | 11.383 ± 5.647                    |
+| TabNet             | 16.064 ± 6.326        | 16.894 ± 6.069                    |
+| TabTransformer     | 18.362 ± 4.963        | 15.255 ± 6.247                    |
+| FTTransformer      | 13.213 ± 6.104        | 12.234 ± 7.382                    |
+| aggBGNN            | 9.66 ± 5.227          | 9.128 ± 4.698                     |
+| aggBGNN-dnf        | 15.936 ± 5.411        | 10.404 ± 6.382                    |
+| aggBGNN-dg         | 17.085 ± 4.889        | 9.426 ± 5.897                     |
+| aggBGNN-v2         | 11.298 ± 5.86         | 12.83 ± 6.243                     |
 
 
 
