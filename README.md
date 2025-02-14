@@ -16,7 +16,7 @@ This code contains implementation of the following models for graphs:
 * **Fully-Connected Neural Network** (FCNN)
 * **GNN** (GAT, GCN, AGNN, APPNP)
 * **FCNN-GNN** (GAT, GCN, AGNN, APPNP)
-* **ResGNN** (CatBoost + {GAT, GCN, AGNN, APPNP})
+* **ResGNN** ({CatBoost, LightGBM, XGBoost} + {GAT, GCN, AGNN, APPNP})
 * **BGNN** (end-to-end {CatBoost + {GAT, GCN, AGNN, APPNP}})
 * **Agg-BGNN**
 
@@ -146,6 +146,34 @@ After that run the script as usual:
 ```bash
 python scripts/run.py path/to/your/dataset gnn catboost 
 ```
+
+### Benchmark
+
+We evaluate our model on multiple small datasets (48 classification tasks + 47 regression tasks) stated in 2023 paper: [ExcelFormer: A neural network surpassing GBDTs on tabular data](https://github.com/WhatAShot/ExcelFormer)
+We benchmark models including classic machine learning models, tabular deep learning models, against graph-based models applying to tabular datasets.
+
+The charts below summarize the average ranking and standard deviation of various models accross 48 small classification tasks and few-shot scenarios, where a lower rank indicates better performances. Each row corresponds to a model, while each column represents 0.6/0.2/0.2 proportion or few-shot scenarios across datasets.
+
+| Model name     | 0.6/0.2/0.2 |
+|----------------|------------------|
+| BGNN           | 6.63 ± 3.832     |
+| BGNN-PL        | 6.435 ± 3.344    |
+| resGNN         | 7.174 ± 4.255    |
+| resGNN-L       | 6.804 ± 3.942    |
+| resGNN-XGB     | 8.304 ± 4.049    |
+| emb-GBDT       | 10.87 ± 3.606    |
+| Catboost       | 8.848 ± 4.016    |
+| ExcelFormer    | 6.804 ± 4.156    |
+| Trompt         | 11.696 ± 3.258   |
+| TabNet         | 8.0 ± 3.847      |
+| TabTransformer | 13.348 ± 2.1     |
+| FTTransformer  | 9.522 ± 4.555    |
+| aggBGNN        | 4.304 ± 2.748    |
+| aggBGNN-dnf    | 5.348 ± 2.505    |
+| aggBGNN-dg     | 4.804 ± 2.993    |
+
+
+
 
 ## Citation
 ```
