@@ -155,23 +155,31 @@ We benchmark models including classic machine learning models, tabular deep lear
 
 The charts below summarize the average ranking and standard deviation of various models accross 48 small classification tasks and few-shot scenarios, where a lower rank indicates better performances. Each row corresponds to a model, while each column represents 0.6/0.2/0.2 proportion or few-shot scenarios across datasets.
 
-| Model name     | 0.6/0.2/0.2 |
-|----------------|------------------|
-| BGNN           | 6.63 ± 3.832     |
-| BGNN-PL        | 6.435 ± 3.344    |
-| resGNN         | 7.174 ± 4.255    |
-| resGNN-L       | 6.804 ± 3.942    |
-| resGNN-XGB     | 8.304 ± 4.049    |
-| emb-GBDT       | 10.87 ± 3.606    |
-| Catboost       | 8.848 ± 4.016    |
-| ExcelFormer    | 6.804 ± 4.156    |
-| Trompt         | 11.696 ± 3.258   |
-| TabNet         | 8.0 ± 3.847      |
-| TabTransformer | 13.348 ± 2.1     |
-| FTTransformer  | 9.522 ± 4.555    |
-| aggBGNN        | 4.304 ± 2.748    |
-| aggBGNN-dnf    | 5.348 ± 2.505    |
-| aggBGNN-dg     | 4.804 ± 2.993    |
+| Model              | 0.6 /0.2/0.2 | few-shot 10 samples | few-shot 4 samples |
+|--------------------|----------------------------------|-----------------------------------|----------------------------------|
+| BGNN              | 10.542 ± 5.882                   | 9.522 ± 5.573                    | 9.062 ± 4.76                     |
+| BGNN-PL           | 11.438 ± 5.772                   | 8.978 ± 4.553                    | 7.208 ± 3.842                    |
+| resGNN           | 7.792 ± 5.592                    | 10.391 ± 6.198                   | 11.521 ± 5.765                   |
+| resGNN-L         | 12.417 ± 5.764                   | 9.761 ± 5.309                    | 10.917 ± 6.277                   |
+| resGNN-XGB       | 12.208 ± 5.653                   | 12.087 ± 5.826                   | 12.688 ± 5.288                   |
+| GNN              | 13.375 ± 6.529                   | 10.913 ± 5.876                   | 9.938 ± 4.23                     |
+| emb-GBDT         | 10.729 ± 5.775                   | 15.478 ± 5.146                   | 15.812 ± 4.009                   |
+| Catboost         | 8.333 ± 5.98                     | 12.761 ± 5.486                   | 15.896 ± 5.244                   |
+| LightGBM         | 10.354 ± 7.033                   | 16.543 ± 7.831                   | 14.0 ± 8.944                     |
+| XGBoost          | 10.021 ± 6.262                   | 14.609 ± 5.331                   | 15.729 ± 5.779                   |
+| Random Forest    | 7.917 ± 6.091                    | 10.978 ± 6.445                   | 10.771 ± 5.325                   |
+| ExcelFormer-None | 12.083 ± 6.677                   | 10.174 ± 5.587                   | 11.208 ± 6.209                   |
+| ExcelFormer-hidden | 13.562 ± 5.672                 | 10.696 ± 6.124                   | 10.812 ± 6.317                   |
+| ExcelFormer-feat | 12.271 ± 6.69                    | 9.652 ± 6.023                    | 11.354 ± 6.183                   |
+| Trompt          | 16.042 ± 4.907                    | 17.109 ± 4.663                   | 16.979 ± 4.624                   |
+| TabNet          | 12.583 ± 7.001                    | 11.478 ± 5.73                    | 9.479 ± 6.804                    |
+| TabTransformer  | 19.583 ± 4.262                    | 19.065 ± 3.007                   | 14.792 ± 6.556                   |
+| FTTransformer   | 13.333 ± 5.751                    | 13.609 ± 6.718                   | 14.771 ± 7.329                   |
+| aggBGNN         | **3.938 ± 2.942**                     | **6.261 ± 3.803**                    | 7.229 ± 3.816                    |
+| aggBGNN-dnf     | 5.042 ± 4.41                      | 7.457 ± 3.698                    | 6.771 ± 3.816                    |
+| aggBGNN-dg      | 4.896 ± 3.888                     | 6.891 ± 4.423                    | **6.75 ± 3.635**                     |
+| aggBGNN-v2      | 4.438 ± 3.825                     | 6.457 ± 4.194                    | 7.875 ± 3.993                    |
+
 
 
 The following charts also present the average ranking and standard deviation of various models across 47 small regression tasks.
@@ -185,13 +193,13 @@ The following charts also present the average ranking and standard deviation of 
 | resGNN-XGB         | 11.277 ± 4.822     | 11.511 ± 5.034                    |
 | GNN                | 11.809 ± 5.663     | 9.872 ± 4.739                     |
 | emb-GBDT           | 7.638 ± 4.914      | 11.106 ± 3.737                    |
-| Catboost           | 6.787 ± 4.496      | 10.787 ± 3.939                    |
+| Catboost           | **6.787 ± 4.496**      | 10.787 ± 3.939                    |
 | LightGBM           | 9.447 ± 5.376      | 21.383 ± 1.095                    |
 | XGBoost            | 16.0 ± 5.481       | 14.809 ± 6.103                    |
 | Random Forest      | 8.277 ± 6.456         | 8.0 ± 4.695                       |
 | ExcelFormer-None   | 7.617 ± 5.739         | 6.979 ± 5.991                     |
 | ExcelFormer-hidden | 8.149 ± 5.254         | 5.745 ± 5.659                     |
-| ExcelFormer-feat   | 7.467 ± 4.698         | 5.674 ± 5.437                     |
+| ExcelFormer-feat   | 7.467 ± 4.698         | **5.674 ± 5.437**                     |
 | Trompt             | 7.702 ± 5.361         | 11.383 ± 5.647                    |
 | TabNet             | 16.064 ± 6.326        | 16.894 ± 6.069                    |
 | TabTransformer     | 18.362 ± 4.963        | 15.255 ± 6.247                    |
